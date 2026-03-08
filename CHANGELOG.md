@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `ansible-webhook/` — containerized FastAPI webhook engine: `POST /run` triggers Ansible playbooks asynchronously (202 + job_id), `GET /status/{job_id}` polls results, `GET /playbooks` lists available playbooks, Swagger UI at `/docs`; deploys on Synology alongside n8n
+- ADR-015: Ansible Webhook Engine (FastAPI + Docker)
+- `ansible.evlab.ch` Traefik service and DNS entry for webhook engine
 - `update.yml` — standalone OS patch management playbook: apt dist-upgrade on all 5 nodes (`serial: 1`), conditional reboot via `/var/run/reboot-required`, LXD evacuate/restore for MicroCloud nodes, post-reboot service health checks (Docker, Technitium, Traefik, LXD, NFS)
 - `update-containers.yml` — standalone container/binary update playbook: node_exporter binary upgrade on all nodes, Technitium/Traefik/cAdvisor image pull + recreate on dns_servers, Prometheus/Grafana/Checkmk image pull + recreate on microcloud[0], with post-update health checks
 - ADR-014: Separate OS and Container Patch Management Playbooks

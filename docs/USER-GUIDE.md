@@ -19,6 +19,33 @@
 
 ---
 
+## Ansible Webhook Engine
+
+Trigger playbooks from n8n, scripts, or a browser via `https://ansible.evlab.ch`.
+
+| Endpoint | Method | Auth | Purpose |
+|---|---|---|---|
+| `/health` | GET | None | Liveness check |
+| `/playbooks` | GET | X-API-Key | List available playbooks |
+| `/run` | POST | X-API-Key | Submit a job → 202 + `job_id` |
+| `/status/{job_id}` | GET | X-API-Key | Poll job status + log tail |
+| `/docs` | GET | None | Swagger UI |
+
+**Example n8n HTTP Request node:**
+```json
+{
+  "method": "POST",
+  "url": "http://ansible-webhook:8000/run",
+  "headers": {"X-API-Key": "{{ $env.ANSIBLE_API_KEY }}"},
+  "body": {
+    "playbook": "update-containers.yml",
+    "limit": "opt1"
+  }
+}
+```
+
+---
+
 ## Sections
 
 - [Day-to-Day Operations](operations.md) — DNS, Traefik/VIP, WireGuard, keepalived health checks

@@ -47,6 +47,8 @@ nav:
       - ADR-011 Mermaid Diagrams: adr/adr-011-mermaid-diagrams.md
       - ADR-012 uv Python Tooling: adr/adr-012-uv-python-tooling.md
       - ADR-013 Claude API Ansible: adr/adr-013-claude-api-ansible-tooling.md
+      - ADR-014 Patch Management: adr/adr-014-patch-management-playbooks.md
+      - ADR-015 Ansible Webhook Engine: adr/adr-015-ansible-webhook-engine.md
 
 markdown_extensions:
   - admonition

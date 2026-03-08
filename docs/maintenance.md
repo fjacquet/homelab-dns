@@ -40,6 +40,34 @@ ansible-playbook -i inventory.yml update-containers.yml --limit opt1
 
 To upgrade `node_exporter` to a new version, bump `node_exporter_version` in `group_vars/all/main.yml`, then run `update-containers.yml`.
 
+## Ansible Webhook Engine
+
+Deployed on the Synology NAS alongside n8n. Swagger UI available at `https://ansible.evlab.ch/docs`.
+
+```bash
+# First-time setup on Synology
+cd /volume1/homelab-dns/ansible-webhook
+echo "WEBHOOK_API_KEY=$(openssl rand -hex 32)" > .env
+docker compose up -d --build
+
+# Update after code changes
+docker compose pull || docker compose build
+docker compose up -d
+
+# View logs
+docker logs ansible-webhook -f
+
+# Test from CLI
+curl https://ansible.evlab.ch/health
+curl -H "X-API-Key: <key>" https://ansible.evlab.ch/playbooks
+
+# Trigger a dry-run update
+curl -X POST https://ansible.evlab.ch/run \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"playbook":"update.yml","limit":"opt1","extra_vars":{"ansible_check_mode":true}}'
+```
+
 ## Let's Encrypt Certificate
 
 Renewal is automatic — Traefik renews before expiry via Infomaniak DNS-01 challenge. Check validity:

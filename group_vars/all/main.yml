@@ -99,6 +99,12 @@ traefik_services:
   - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.13:3000" }
   - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.13:9090" }
   - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.13:8090" }
+  # Ansible webhook engine (Synology)
+  - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.10:8000" }
+
+# === Ansible Webhook Engine ===
+ansible_webhook_port: 8000
+ansible_webhook_url: "https://ansible.evlab.ch"
 
 # === WireGuard (natif, pas Docker) ===
 wireguard_server_url: vpn.evlab.ch
