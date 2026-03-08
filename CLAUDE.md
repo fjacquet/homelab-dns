@@ -91,7 +91,8 @@ ansible-vault edit group_vars/all/vault.yml
 
 - `group_vars/all/main.yml`: All non-secret variables (IPs, ports, DNS records, DHCP reservations, service definitions)
 - `group_vars/all/vault.yml`: Ansible Vault encrypted secrets (passwords, API tokens, WireGuard keys)
-- Host-specific vars (`dhcp_range_start`, `dhcp_range_end`, `infra_hostname`, `infra_ip`) are in `inventory.yml`
+- Host-specific vars (`dhcp_range_start`, `dhcp_range_end`, `infra_hostname`) are in `inventory.yml`
+- `dns_primary_ip`/`dns_secondary_ip` are derived from inventory via `hostvars` (not hardcoded)
 
 Vault vars follow the pattern `vault_*` and are referenced from `main.yml`.
 

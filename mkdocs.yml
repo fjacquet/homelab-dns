@@ -49,6 +49,7 @@ nav:
       - ADR-013 Claude API Ansible: adr/adr-013-claude-api-ansible-tooling.md
       - ADR-014 Patch Management: adr/adr-014-patch-management-playbooks.md
       - ADR-015 Ansible Webhook Engine: adr/adr-015-ansible-webhook-engine.md
+      - ADR-016 Security Hardening: adr/adr-016-security-hardening.md
 
 markdown_extensions:
   - admonition

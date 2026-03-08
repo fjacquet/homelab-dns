@@ -18,8 +18,37 @@ All notable changes to this project will be documented in this file.
 - Troubleshooting: DHCP wrong IP (missing reservations on secondary)
 - Troubleshooting: systemd-resolved blocking port 53
 
+### Changed
+
+- Docker installation switched from `get.docker.com` script to official APT repository (GPG key + docker-ce packages)
+- All Technitium API calls converted from GET+token-in-URL to POST+token-in-body
+- iptables rules replaced with template-rendered `/etc/iptables/rules.v4` + `iptables-restore` (idempotent)
+- ACME cert sync increased from hourly to every 5 minutes, with syslog logging and `StrictHostKeyChecking=yes`
+- Container images pinned: technitium:14, traefik:v3.6, prometheus:v3, grafana:11, checkmk:2.3, n8n:1
+- `dns_primary_ip`/`dns_secondary_ip` derived from inventory via `hostvars` (no more manual duplication)
+- Node exporter tasks extracted into shared `roles/node_exporter/` (was duplicated in site.yml and microcloud-prepare.yml)
+- Webhook container: enabled `host_key_checking`, pre-populated `known_hosts` via `ssh-keyscan`
+- Prometheus Traefik scrape: replaced `insecure_skip_verify` with proper `ca_file` TLS validation
+- ansible-lint pinned to `>=25,<26` in CI; molecule `continue-on-error` removed
+- NFS mount point creation now skips already-mounted paths (fixes `EPERM` on re-run)
+
+### Security
+
+- Secrets (Technitium password, Infomaniak token) moved from Docker Compose templates to `.env` files with mode `0600`
+- `no_log: true` added to all 12 Technitium/DHCP API tasks
+- Webhook engine: startup fails if `WEBHOOK_API_KEY` is empty (was fail-open with HTTP 500)
+- Webhook engine: `tags` and `limit` fields validated with regex allowlists
+- Webhook engine: job store capped at `MAX_JOBS=200` with eviction; log lines capped at `MAX_LOG_LINES=1000`
+- Webhook engine: healthcheck added to Docker Compose definitions
+- Unused Docker socket mount removed from Traefik (file provider only)
+- `acme.json` pre-created with mode `0600` to prevent Traefik permission errors
+
 ### Fixed
 
+- LXD evacuate/restore uses `mc_hostname` instead of `inventory_hostname` (was using wrong cluster member name)
+- Docker daemon verification task now skipped on MicroCloud nodes (no Docker installed)
+- WireGuard kernel module only loaded on infra2 (was unnecessarily loaded on both nodes)
+- Debug tasks no longer print literal vault variable names
 - DHCP reservations now deployed on **both** servers (was primary-only, causing wrong IPs when infra2 responded first)
 - `/opt/docker/ddns` directory created on both infra nodes (was primary-only, causing backup script deployment failure on infra2)
 - Netplan templates use `{{ wireguard_interface }}` variable instead of hardcoded `enp1s0`
