@@ -3,7 +3,7 @@ all:
   vars:
     ansible_user: fjacquet
     ansible_become: true
-    ansible_python_interpreter: /usr/bin/python3
+    ansible_python_interpreter: auto_silent
 
   children:
     dns_primary:

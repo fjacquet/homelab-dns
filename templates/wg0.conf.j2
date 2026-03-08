@@ -5,8 +5,8 @@ PrivateKey = {{ wireguard_server_private_key }}
 SaveConfig = false
 
 # NAT pour le trafic VPN vers le LAN
-PostUp   = iptables -t nat -A POSTROUTING -s {{ wireguard_internal_subnet }} -o {{ wireguard_interface }} -j MASQUERADE
-PostDown = iptables -t nat -D POSTROUTING -s {{ wireguard_internal_subnet }} -o {{ wireguard_interface }} -j MASQUERADE
+PostUp   = iptables -t nat -A POSTROUTING -s {{ wireguard_internal_subnet }} -o {{ lan_interface }} -j MASQUERADE
+PostDown = iptables -t nat -D POSTROUTING -s {{ wireguard_internal_subnet }} -o {{ lan_interface }} -j MASQUERADE
 
 {% for peer in wireguard_peers_list %}
 [Peer]

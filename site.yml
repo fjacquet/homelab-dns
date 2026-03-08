@@ -47,7 +47,7 @@
 
     - name: Deploy netplan config
       ansible.builtin.template:
-        src: templates/netplan-infra.yml.j2
+        src: netplan-infra.yml.j2
         dest: /etc/netplan/01-infra.yaml
         owner: root
         group: root
@@ -69,6 +69,7 @@
   handlers:
     - name: apply netplan
       ansible.builtin.command: netplan apply
+      changed_when: true
 
 ##############################################################################
 # Phase 0.3 — Docker
@@ -142,7 +143,6 @@
         - "{{ docker_base_dir }}/ddns"
 
     - name: Create primary-only directories
-      when: inventory_hostname in groups['dns_primary']
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -152,6 +152,7 @@
       loop:
         - "{{ docker_base_dir }}/traefik/config/dynamic"
         - "{{ docker_base_dir }}/traefik/certs"
+      when: inventory_hostname in groups['dns_primary']
 
 ##############################################################################
 # Phase 3 — Technitium DNS (tous les noeuds)
@@ -163,17 +164,20 @@
   tasks:
     - name: Deploy Technitium docker-compose.yml
       ansible.builtin.template:
-        src: templates/technitium-compose.yml.j2
+        src: technitium-compose.yml.j2
         dest: "{{ docker_base_dir }}/technitium/docker-compose.yml"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: "0644"
+        mode: "0640"
       notify: restart technitium
 
     - name: Start Technitium
       community.docker.docker_compose_v2:
         project_src: "{{ docker_base_dir }}/technitium"
         state: present
+
+    - name: Flush handlers before API interaction
+      ansible.builtin.meta: flush_handlers
 
     - name: Wait for Technitium API
       ansible.builtin.uri:
@@ -183,10 +187,12 @@
       retries: 10
       delay: 5
       until: technitium_login.status == 200
+      no_log: true
 
     - name: Extract API token
       ansible.builtin.set_fact:
         technitium_token: "{{ (technitium_login.content | from_json).token }}"
+      no_log: true
 
   handlers:
     - name: restart technitium
@@ -334,7 +340,6 @@
   tags: [traefik]
   tasks:
     - name: Create Traefik directories (secondary)
-      when: inventory_hostname in groups['dns_secondary']
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -344,18 +349,19 @@
       loop:
         - "{{ docker_base_dir }}/traefik/config/dynamic"
         - "{{ docker_base_dir }}/traefik/certs"
+      when: inventory_hostname in groups['dns_secondary']
 
     - name: Deploy Traefik docker-compose.yml
       ansible.builtin.template:
-        src: templates/traefik-compose.yml.j2
+        src: traefik-compose.yml.j2
         dest: "{{ docker_base_dir }}/traefik/docker-compose.yml"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
-        mode: "0644"
+        mode: "0640"
 
     - name: Deploy Traefik static config
       ansible.builtin.template:
-        src: templates/traefik-static.yml.j2
+        src: traefik-static.yml.j2
         dest: "{{ docker_base_dir }}/traefik/config/traefik.yml"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
@@ -364,7 +370,7 @@
 
     - name: Deploy Traefik dynamic services
       ansible.builtin.template:
-        src: templates/traefik-services.yml.j2
+        src: traefik-services.yml.j2
         dest: "{{ docker_base_dir }}/traefik/config/dynamic/services.yml"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
@@ -404,7 +410,7 @@
 
     - name: Deploy Traefik health check script
       ansible.builtin.template:
-        src: templates/check-traefik.sh.j2
+        src: check-traefik.sh.j2
         dest: /etc/keepalived/scripts/check_traefik.sh
         owner: root
         group: root
@@ -412,12 +418,13 @@
 
     - name: Deploy keepalived config
       ansible.builtin.template:
-        src: templates/keepalived.conf.j2
+        src: keepalived.conf.j2
         dest: /etc/keepalived/keepalived.conf
         owner: root
         group: root
         mode: "0644"
       notify: restart keepalived
+      no_log: true
 
     - name: Enable and start keepalived
       ansible.builtin.systemd:
@@ -426,20 +433,20 @@
         state: started
 
     - name: Deploy ACME sync script (primary only)
-      when: inventory_hostname in groups['dns_primary']
       ansible.builtin.template:
-        src: templates/sync-acme.sh.j2
+        src: sync-acme.sh.j2
         dest: "{{ docker_base_dir }}/traefik/sync-acme.sh"
         owner: root
         group: root
-        mode: "0755"
+        mode: "0700"
+      when: inventory_hostname in groups['dns_primary']
 
     - name: ACME sync cron every hour (primary only)
-      when: inventory_hostname in groups['dns_primary']
       ansible.builtin.cron:
         name: "Sync acme.json to infra2"
         minute: "15"
         job: "{{ docker_base_dir }}/traefik/sync-acme.sh"
+      when: inventory_hostname in groups['dns_primary']
 
   handlers:
     - name: restart keepalived
@@ -470,7 +477,6 @@
         comment: "Technitium Web UI - localhost only"
 
     - name: Allow infra1 to reach infra2 port 5380 (for dns2.evlab.ch via Traefik)
-      when: inventory_hostname in groups['dns_secondary']
       ansible.builtin.iptables:
         chain: INPUT
         protocol: tcp
@@ -478,6 +484,7 @@
         source: "{{ dns_primary_ip }}"
         jump: ACCEPT
         comment: "Technitium Web UI - Traefik proxy from infra1"
+      when: inventory_hostname in groups['dns_secondary']
 
     - name: Block external access to 5380
       ansible.builtin.iptables:
@@ -590,12 +597,13 @@
 
     - name: Deploy wg0.conf
       ansible.builtin.template:
-        src: templates/wg0.conf.j2
+        src: wg0.conf.j2
         dest: /etc/wireguard/wg0.conf
         owner: root
         group: root
         mode: "0600"
       notify: restart wireguard
+      no_log: true
 
     - name: Enable and start WireGuard
       ansible.builtin.systemd:
@@ -613,7 +621,7 @@
 
     - name: Generate client configs
       ansible.builtin.template:
-        src: templates/wg-client.conf.j2
+        src: wg-client.conf.j2
         dest: "/etc/wireguard/clients/{{ peer.name }}.conf"
         owner: root
         group: root
@@ -622,15 +630,18 @@
       loop_control:
         loop_var: peer
         label: "{{ peer.name }}"
+      no_log: true
 
     - name: Generate QR codes for mobile clients
       ansible.builtin.shell: |
         qrencode -t png -o /etc/wireguard/clients/{{ peer.name }}.png < /etc/wireguard/clients/{{ peer.name }}.conf
+      args:
+        creates: "/etc/wireguard/clients/{{ peer.name }}.png"
       loop: "{{ wireguard_peers_list }}"
       loop_control:
         loop_var: peer
         label: "{{ peer.name }}"
-      changed_when: true
+      no_log: true
 
     - name: Display client config paths
       ansible.builtin.debug:
@@ -667,24 +678,24 @@
   tags: [cron]
   tasks:
     - name: Deploy DDNS script (primary only)
-      when: inventory_hostname in groups['dns_primary']
       ansible.builtin.template:
-        src: templates/update-ddns.sh.j2
+        src: update-ddns.sh.j2
         dest: "{{ docker_base_dir }}/ddns/update-ddns.sh"
         owner: root
         group: root
-        mode: "0755"
+        mode: "0700"
+      when: inventory_hostname in groups['dns_primary']
 
     - name: DDNS cron every 5 min (primary only)
-      when: inventory_hostname in groups['dns_primary']
       ansible.builtin.cron:
         name: "DDNS update vpn.evlab.ch"
         minute: "*/5"
         job: "{{ docker_base_dir }}/ddns/update-ddns.sh >> /var/log/ddns.log 2>&1"
+      when: inventory_hostname in groups['dns_primary']
 
     - name: Deploy backup script
       ansible.builtin.template:
-        src: templates/backup-infra.sh.j2
+        src: backup-infra.sh.j2
         dest: "{{ docker_base_dir }}/ddns/backup-infra.sh"
         owner: root
         group: root
@@ -717,6 +728,7 @@
         url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
         dest: /tmp/node_exporter.tar.gz
         mode: "0644"
+        checksum: "sha256:https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/sha256sums.txt"
 
     - name: Extract node_exporter
       ansible.builtin.unarchive:

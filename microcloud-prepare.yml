@@ -64,7 +64,7 @@
 
     - name: Deploy netplan (DHCP + DNS override)
       ansible.builtin.template:
-        src: templates/netplan-mc.yml.j2
+        src: netplan-mc.yml.j2
         dest: /etc/netplan/01-mc.yaml
         owner: root
         group: root
@@ -74,6 +74,7 @@
   handlers:
     - name: apply netplan
       ansible.builtin.command: netplan apply
+      changed_when: true
     - name: restart resolved
       ansible.builtin.systemd:
         name: systemd-resolved
@@ -94,12 +95,11 @@
 
     - name: Install MicroCloud and dependencies (no MicroCeph)
       community.general.snap:
-        name: "{{ item }}"
+        name:
+          - lxd
+          - microovn
+          - microcloud
         state: present
-      loop:
-        - lxd
-        - microovn
-        - microcloud
 
     - name: Hold snap auto-refresh during setup
       ansible.builtin.command: snap refresh --hold
@@ -114,12 +114,13 @@
   tags: [mc_nfs]
   tasks:
     - name: Create NFS mount points
-      ansible.builtin.command:
-        cmd: "mkdir -p {{ item.mountpoint }}"
-        creates: "{{ item.mountpoint }}"
+      ansible.builtin.file:
+        path: "{{ item.mountpoint }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
       loop: "{{ nfs_mounts }}"
-      loop_control:
-        label: "{{ item.mountpoint }}"
 
     - name: Mount NFS exports from Synology
       ansible.posix.mount:
@@ -167,6 +168,7 @@
         url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
         dest: /tmp/node_exporter.tar.gz
         mode: "0644"
+        checksum: "sha256:https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/sha256sums.txt"
 
     - name: Extract node_exporter
       ansible.builtin.unarchive:

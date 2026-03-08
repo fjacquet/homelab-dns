@@ -10,9 +10,6 @@
   hosts: microcloud[0]
   become: true
   tags: [mc_prometheus, mc_grafana]
-  vars:
-    prometheus_dir: /opt/monitoring/prometheus
-    grafana_dir: /opt/monitoring/grafana
   tasks:
     - name: Create monitoring directories
       ansible.builtin.file:
@@ -51,9 +48,9 @@
             - job_name: node-microcloud
               static_configs:
                 - targets:
-                    - 172.16.86.13:{{ node_exporter_port }}
-                    - 172.16.86.14:{{ node_exporter_port }}
-                    - 172.16.86.15:{{ node_exporter_port }}
+{% for host in groups['microcloud'] %}
+                    - {{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}
+{% endfor %}
                   labels:
                     role: microcloud
 
@@ -127,7 +124,7 @@
     - name: Deploy docker-compose for monitoring stack
       ansible.builtin.copy:
         dest: /opt/monitoring/docker-compose.yml
-        mode: "0644"
+        mode: "0640"
         content: |
           services:
             prometheus:
@@ -154,7 +151,7 @@
                 - "3000:3000"
               environment:
                 - GF_SECURITY_ADMIN_USER=admin
-                - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_password | default('changeme') }}
+                - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_password }}
                 - GF_USERS_ALLOW_SIGN_UP=false
                 - GF_SERVER_ROOT_URL=https://grafana.{{ domain }}
               volumes:
@@ -164,6 +161,7 @@
               depends_on:
                 - prometheus
       notify: restart monitoring stack
+      no_log: true
 
     - name: Start monitoring stack
       community.docker.docker_compose_v2:
@@ -207,8 +205,6 @@
   hosts: microcloud[0]
   become: true
   tags: [mc_checkmk]
-  vars:
-    checkmk_dir: /opt/checkmk
   tasks:
     - name: Create Checkmk directories
       ansible.builtin.file:
@@ -233,7 +229,7 @@
           - /opt/omd/sites/cmk/tmp:uid=1000,gid=1000
         env:
           CMK_SITE_ID: "cmk"
-          CMK_PASSWORD: "{{ vault_checkmk_password | default('changeme') }}"
+          CMK_PASSWORD: "{{ vault_checkmk_password }}"
 
     - name: Wait for Checkmk to be ready
       ansible.builtin.uri:

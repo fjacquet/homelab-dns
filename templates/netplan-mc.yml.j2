@@ -1,7 +1,7 @@
 network:
   version: 2
   ethernets:
-    {{ wireguard_interface }}:
+    {{ lan_interface }}:
       dhcp4: true
       nameservers:
         addresses:

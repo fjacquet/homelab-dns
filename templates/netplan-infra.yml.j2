@@ -1,7 +1,7 @@
 network:
   version: 2
   ethernets:
-    {{ wireguard_interface }}:
+    {{ lan_interface }}:
       addresses:
         - {{ infra_ip }}/24
       routes:

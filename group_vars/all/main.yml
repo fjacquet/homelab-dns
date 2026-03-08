@@ -112,7 +112,8 @@ traefik_services:
 wireguard_server_url: vpn.evlab.ch
 wireguard_port: 51820
 wireguard_internal_subnet: "10.13.13.0/24"
-wireguard_interface: enp0s31f6 # interface LAN physique (Optiplex Micro)
+# Physical LAN NIC (same on all Optiplex Micro units)
+lan_interface: enp0s31f6
 
 # Cles generees par: wg genkey | tee private.key | wg pubkey > public.key
 wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
@@ -156,3 +157,8 @@ wireguard_exporter_port: 9586
 
 # === Docker ===
 docker_base_dir: /opt/docker
+
+# === Monitoring directories ===
+prometheus_dir: /opt/monitoring/prometheus
+grafana_dir: /opt/monitoring/grafana
+checkmk_dir: /opt/monitoring/checkmk
