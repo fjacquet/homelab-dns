@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-9 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
+13 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
 
 ```mermaid
 graph TD
@@ -13,21 +13,28 @@ graph TD
     ADR007["ADR-007\nDNS-01 Challenge\nvia Infomaniak"]
     ADR008["ADR-008\nDual Monitoring\nStack"]
     ADR009["ADR-009\nApps Stay on\nSynology"]
+    ADR010["ADR-010\nMkDocs + GitHub\nPages"]
+    ADR011["ADR-011\nMermaid Diagram\nStandard"]
+    ADR012["ADR-012\nuv Python\nTooling"]
+    ADR013["ADR-013\nClaude API\nAnsible Tooling"]
 
     INFRA["Infrastructure\nLayer"]
     NET["Network\nServices"]
     MON["Observability"]
     STORE["Storage &\nApps"]
+    TOOLING["Dev Tooling &\nDocumentation"]
 
     INFRA --> ADR001
     NET --> ADR002 & ADR003 & ADR004 & ADR006 & ADR007
     MON --> ADR008
     STORE --> ADR005 & ADR009
+    TOOLING --> ADR010 & ADR011 & ADR012 & ADR013
 
     style INFRA fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
     style NET fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
     style MON fill:#fff3e0,stroke:#ff9800,stroke-width:2px
     style STORE fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    style TOOLING fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
 ```
 
 | ADR | Title | Status |
@@ -41,3 +48,7 @@ graph TD
 | [ADR-007](adr-007-dns01-infomaniak.md) | DNS-01 Challenge via Infomaniak | ✅ Accepted |
 | [ADR-008](adr-008-dual-monitoring.md) | Dual Monitoring Stack | ✅ Accepted |
 | [ADR-009](adr-009-apps-on-synology.md) | Application Services Stay on Synology | ✅ Accepted |
+| [ADR-010](adr-010-mkdocs-github-pages.md) | MkDocs + GitHub Pages for Documentation | ✅ Accepted |
+| [ADR-011](adr-011-mermaid-diagrams.md) | Mermaid as Documentation Diagram Standard | ✅ Accepted |
+| [ADR-012](adr-012-uv-python-tooling.md) | uv for Python Tooling Scripts | ✅ Accepted |
+| [ADR-013](adr-013-claude-api-ansible-tooling.md) | Claude API for Ansible AI Tooling | ✅ Accepted |

@@ -43,6 +43,10 @@ nav:
     - ADR-007 DNS-01 Infomaniak: adr/adr-007-dns01-infomaniak.md
     - ADR-008 Dual Monitoring: adr/adr-008-dual-monitoring.md
     - ADR-009 Apps on Synology: adr/adr-009-apps-on-synology.md
+    - ADR-010 MkDocs GitHub Pages: adr/adr-010-mkdocs-github-pages.md
+    - ADR-011 Mermaid Diagrams: adr/adr-011-mermaid-diagrams.md
+    - ADR-012 uv Python Tooling: adr/adr-012-uv-python-tooling.md
+    - ADR-013 Claude API Ansible: adr/adr-013-claude-api-ansible-tooling.md
 
 markdown_extensions:
   - admonition
