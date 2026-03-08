@@ -128,7 +128,7 @@
           services:
             prometheus:
               container_name: prometheus
-              image: prom/prometheus:v3
+              image: prom/prometheus:latest
               restart: unless-stopped
               user: root
               command:
@@ -144,7 +144,7 @@
 
             grafana:
               container_name: grafana
-              image: grafana/grafana:11
+              image: grafana/grafana:latest
               restart: unless-stopped
               ports:
                 - "3000:3000"
@@ -216,7 +216,7 @@
     - name: Deploy Checkmk container
       community.docker.docker_container:
         name: checkmk
-        image: checkmk/check-mk-raw:2.3
+        image: checkmk/check-mk-raw:latest
         state: started
         restart_policy: unless-stopped
         published_ports:
@@ -288,7 +288,7 @@
           services:
             n8n:
               container_name: n8n
-              image: n8nio/n8n:1
+              image: n8nio/n8n:latest
               restart: unless-stopped
               ports:
                 - "5678:5678"
