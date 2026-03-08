@@ -62,6 +62,20 @@
           - nfs-common
         state: present
 
+    - name: Disable cloud-init network config
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+        content: "network: {config: disabled}\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Remove cloud-init netplan (conflicts with managed config)
+      ansible.builtin.file:
+        path: /etc/netplan/50-cloud-init.yaml
+        state: absent
+      notify: Apply netplan
+
     - name: Deploy netplan (DHCP + DNS override)
       ansible.builtin.template:
         src: netplan-mc.yml.j2
