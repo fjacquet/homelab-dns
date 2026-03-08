@@ -17,6 +17,15 @@ http:
 {% for svc in traefik_services %}
     {{ svc.name }}:
       loadBalancer:
+{% if svc.skip_tls_verify | default(false) %}
+        serversTransport: insecure-skip-verify
+{% endif %}
         servers:
           - url: "{{ svc.url }}"
 {% endfor %}
+
+{% if traefik_services | selectattr('skip_tls_verify', 'defined') | selectattr('skip_tls_verify') | list | length > 0 %}
+  serversTransports:
+    insecure-skip-verify:
+      insecureSkipVerify: true
+{% endif %}

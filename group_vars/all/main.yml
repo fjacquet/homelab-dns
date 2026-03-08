@@ -13,13 +13,15 @@ technitium_admin_password: "{{ vault_technitium_password }}"
 technitium_web_port: 5380
 
 technitium_forwarders:
-  - "https://cloudflare-dns.com/dns-query"
-  - "https://dns.google/dns-query"
+  - "https://cloudflare-dns.com/dns-query (1.1.1.1)"
+  - "https://cloudflare-dns.com/dns-query (1.0.0.1)"
+  - "https://dns.google/dns-query (8.8.8.8)"
+  - "https://dns.google/dns-query (8.8.4.4)"
 
 technitium_blocklists:
-  - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-  - "https://big.oisd.nl/domainswild"
-  - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt"
+  - "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews/hosts"
+  - "https://big.oisd.nl/domainswild2"
+  - "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt"
 
 # === DNS Records ===
 dns_a_records:
@@ -106,6 +108,8 @@ traefik_services:
   - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.13:8090" }
   # Ansible webhook engine (mc-node-01)
   - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.13:8000" }
+  # LXD Web UI (mc-node-01)
+  - { name: lxd, host: "lxd.evlab.ch", url: "https://172.16.86.13:8443", skip_tls_verify: true }
 
 # === n8n + Ansible Webhook (automation stack on mc-node-01) ===
 n8n_port: 5678

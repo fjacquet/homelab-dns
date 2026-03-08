@@ -1,33 +1,93 @@
 ---
 # #############################################################################
 # MicroCloud — Deploy services (run AFTER microcloud init)
+# All services run as LXD containers (no Docker on MicroCloud nodes)
 # #############################################################################
 
 # #############################################################################
-# Phase 1 — Prometheus + Grafana (monitoring stack)
+# Phase 0 — LXD Web UI
+# #############################################################################
+- name: "MC Services — Enable LXD Web UI"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_lxd_ui]
+  tasks:
+    - name: Expose LXD API on network for Web UI
+      ansible.builtin.command: lxc config set core.https_address {{ ansible_host }}:8443
+      changed_when: true
+
+    - name: Generate LXD trust token for UI access
+      ansible.builtin.command: lxc config trust add --name ui-admin
+      register: lxd_trust_token
+      changed_when: true
+
+    - name: Display LXD UI access info
+      ansible.builtin.debug:
+        msg: |
+          LXD Web UI available at: https://lxd.evlab.ch
+          Trust token (use in browser): {{ lxd_trust_token.stdout }}
+
+# #############################################################################
+# Phase 1 — Prometheus + Grafana (LXD container)
 # #############################################################################
 - name: "MC Services — Prometheus + Grafana"
   hosts: microcloud[0]
   become: true
   tags: [mc_prometheus, mc_grafana]
   tasks:
-    - name: Create monitoring directories
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        mode: "0755"
-      loop:
-        - /opt/monitoring
-        - "{{ prometheus_dir }}/config"
-        - "{{ prometheus_dir }}/data"
-        - "{{ grafana_dir }}/data"
-        - "{{ grafana_dir }}/provisioning/datasources"
-        - "{{ grafana_dir }}/provisioning/dashboards"
-        - "{{ grafana_dir }}/dashboards"
+    - name: Create monitoring LXD container
+      community.general.lxd_container:
+        name: monitoring
+        ignore_volatile_options: true
+        state: started
+        source:
+          type: image
+          mode: pull
+          server: https://cloud-images.ubuntu.com/releases/
+          protocol: simplestreams
+          alias: "24.04"
+        profiles: ["default"]
+        devices:
+          prometheus:
+            type: proxy
+            listen: "tcp:0.0.0.0:9090"
+            connect: "tcp:127.0.0.1:9090"
+          grafana:
+            type: proxy
+            listen: "tcp:0.0.0.0:3000"
+            connect: "tcp:127.0.0.1:3000"
+        config:
+          limits.cpu: "2"
+          limits.memory: 4GB
+        wait_for_ipv4_addresses: true
+        timeout: 600
+
+    - name: Wait for cloud-init to finish in monitoring container
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.raw: cloud-init status --wait
+      changed_when: false
+
+    - name: Install python3 in monitoring container
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.raw: apt-get update && apt-get install -y python3 gpg apt-transport-https software-properties-common
+      changed_when: true
+
+    # --- Prometheus ---
+    - name: Install Prometheus
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.apt:
+        name: prometheus
+        state: present
+        update_cache: true
 
     - name: Deploy Prometheus config
+      delegate_to: monitoring
+      connection: community.general.lxd
       ansible.builtin.copy:
-        dest: "{{ prometheus_dir }}/config/prometheus.yml"
+        dest: /etc/prometheus/prometheus.yml
         mode: "0644"
         content: |
           global:
@@ -82,9 +142,70 @@
                     - localhost:9090
       notify: Restart prometheus
 
-    - name: Deploy Grafana datasource provisioning
+    - name: Configure Prometheus retention
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.lineinfile:
+        path: /etc/default/prometheus
+        regexp: '^ARGS='
+        line: 'ARGS="--storage.tsdb.retention.time=30d --web.enable-lifecycle"'
+      notify: Restart prometheus
+
+    - name: Enable and start Prometheus
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.systemd:
+        name: prometheus
+        state: started
+        enabled: true
+
+    # --- Grafana ---
+    - name: Add Grafana APT key
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.shell: |
+        curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor -o /usr/share/keyrings/grafana-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/grafana-archive-keyring.gpg
+
+    - name: Add Grafana APT repository
+      delegate_to: monitoring
+      connection: community.general.lxd
       ansible.builtin.copy:
-        dest: "{{ grafana_dir }}/provisioning/datasources/prometheus.yml"
+        dest: /etc/apt/sources.list.d/grafana.list
+        mode: "0644"
+        content: |
+          deb [signed-by=/usr/share/keyrings/grafana-archive-keyring.gpg] https://apt.grafana.com stable main
+
+    - name: Install Grafana
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.apt:
+        name: grafana
+        state: present
+        update_cache: true
+
+    - name: Configure Grafana
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.lineinfile:
+        path: /etc/grafana/grafana.ini
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        insertafter: "{{ item.after | default(omit) }}"
+      loop:
+        - { regexp: '^;?admin_user =', line: 'admin_user = admin', after: '\\[security\\]' }
+        - { regexp: '^;?admin_password =', line: 'admin_password = {{ vault_grafana_password }}', after: '\\[security\\]' }
+        - { regexp: '^;?allow_sign_up =', line: 'allow_sign_up = false', after: '\\[users\\]' }
+        - { regexp: '^;?root_url =', line: 'root_url = https://grafana.{{ domain }}', after: '\\[server\\]' }
+      no_log: true
+      notify: Restart grafana
+
+    - name: Deploy Grafana datasource provisioning
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.copy:
+        dest: /etc/grafana/provisioning/datasources/prometheus.yml
         mode: "0644"
         content: |
           apiVersion: 1
@@ -92,13 +213,16 @@
             - name: Prometheus
               type: prometheus
               access: proxy
-              url: http://prometheus:9090
+              url: http://localhost:9090
               isDefault: true
               editable: false
+      notify: Restart grafana
 
     - name: Deploy Grafana dashboard provisioning
+      delegate_to: monitoring
+      connection: community.general.lxd
       ansible.builtin.copy:
-        dest: "{{ grafana_dir }}/provisioning/dashboards/default.yml"
+        dest: /etc/grafana/provisioning/dashboards/default.yml
         mode: "0644"
         content: |
           apiVersion: 1
@@ -113,64 +237,18 @@
                 path: /var/lib/grafana/dashboards
                 foldersFromFilesStructure: false
 
-    - name: Set Grafana data directory ownership
-      ansible.builtin.file:
-        path: "{{ grafana_dir }}/data"
-        owner: "472"
-        group: "472"
-        recurse: true
-
-    - name: Deploy docker-compose for monitoring stack
-      ansible.builtin.copy:
-        dest: /opt/monitoring/docker-compose.yml
-        mode: "0640"
-        content: |
-          services:
-            prometheus:
-              container_name: prometheus
-              image: prom/prometheus:latest
-              restart: unless-stopped
-              user: root
-              command:
-                - --config.file=/etc/prometheus/prometheus.yml
-                - --storage.tsdb.path=/prometheus
-                - --storage.tsdb.retention.time=30d
-                - --web.enable-lifecycle
-              ports:
-                - "9090:9090"
-              volumes:
-                - {{ prometheus_dir }}/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-                - {{ prometheus_dir }}/data:/prometheus
-
-            grafana:
-              container_name: grafana
-              image: grafana/grafana:latest
-              restart: unless-stopped
-              ports:
-                - "3000:3000"
-              environment:
-                - GF_SECURITY_ADMIN_USER=admin
-                - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_password }}
-                - GF_USERS_ALLOW_SIGN_UP=false
-                - GF_SERVER_ROOT_URL=https://grafana.{{ domain }}
-              volumes:
-                - {{ grafana_dir }}/data:/var/lib/grafana
-                - {{ grafana_dir }}/provisioning:/etc/grafana/provisioning
-                - {{ grafana_dir }}/dashboards:/var/lib/grafana/dashboards
-              depends_on:
-                - prometheus
-      notify: Restart monitoring stack
-      no_log: true
-
-    - name: Start monitoring stack
-      community.docker.docker_compose_v2:
-        project_src: /opt/monitoring
-        state: present
+    - name: Enable and start Grafana
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.systemd:
+        name: grafana-server
+        state: started
+        enabled: true
 
     - name: Display access info
       ansible.builtin.debug:
         msg: |
-          Monitoring stack deployed on {{ mc_hostname }} ({{ ansible_host }}).
+          Monitoring stack deployed in LXD container 'monitoring' on {{ mc_hostname }}.
 
           Prometheus: http://{{ ansible_host }}:9090
           Grafana:    http://{{ ansible_host }}:3000 (admin / <see vault>)
@@ -180,54 +258,100 @@
             - Docker / cAdvisor:  ID 193
             - Traefik:            ID 17346
 
-          To expose via Traefik, add DNS records and Traefik routes:
-            grafana.evlab.ch    → http://{{ ansible_host }}:3000
-            prometheus.evlab.ch → http://{{ ansible_host }}:9090
-
   handlers:
     - name: Restart prometheus
-      community.docker.docker_container:
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.systemd:
         name: prometheus
-        state: started
-        restart: true
+        state: restarted
 
-    - name: Restart monitoring stack
-      community.docker.docker_compose_v2:
-        project_src: /opt/monitoring
+    - name: Restart grafana
+      delegate_to: monitoring
+      connection: community.general.lxd
+      ansible.builtin.systemd:
+        name: grafana-server
         state: restarted
 
 ##############################################################################
-# Phase 2 — Checkmk (infrastructure monitoring)
+# Phase 2 — Checkmk (LXD container)
 ##############################################################################
 - name: "MC Services — Checkmk server"
   hosts: microcloud[0]
   become: true
   tags: [mc_checkmk]
   tasks:
-    - name: Create Checkmk directories
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: directory
-        mode: "0755"
-      loop:
-        - "{{ checkmk_dir }}"
-        - "{{ checkmk_dir }}/data"
-
-    - name: Deploy Checkmk container
-      community.docker.docker_container:
+    - name: Create Checkmk LXD container
+      community.general.lxd_container:
         name: checkmk
-        image: checkmk/check-mk-raw:latest
+        ignore_volatile_options: true
         state: started
-        restart_policy: unless-stopped
-        published_ports:
-          - "8090:5000"
-        volumes:
-          - "{{ checkmk_dir }}/data:/omd/sites"
-        tmpfs:
-          - /opt/omd/sites/cmk/tmp:uid=1000,gid=1000
-        env:
-          CMK_SITE_ID: "cmk"
-          CMK_PASSWORD: "{{ vault_checkmk_password }}"
+        source:
+          type: image
+          mode: pull
+          server: https://cloud-images.ubuntu.com/releases/
+          protocol: simplestreams
+          alias: "24.04"
+        profiles: ["default"]
+        devices:
+          web:
+            type: proxy
+            listen: "tcp:0.0.0.0:8090"
+            connect: "tcp:127.0.0.1:5000"
+        config:
+          limits.cpu: "2"
+          limits.memory: 4GB
+          security.nesting: "true"
+        wait_for_ipv4_addresses: true
+        timeout: 600
+
+    - name: Wait for cloud-init to finish in checkmk container
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.raw: cloud-init status --wait
+      changed_when: false
+
+    - name: Install python3 in checkmk container
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.raw: apt-get update && apt-get install -y python3 wget
+      changed_when: true
+
+    - name: Download Checkmk Raw Edition
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.shell: |
+        if [ ! -f /tmp/checkmk.deb ]; then
+          wget -q "https://download.checkmk.com/checkmk/2.3.0p30/check-mk-raw-2.3.0p30_0.noble_amd64.deb" -O /tmp/checkmk.deb
+        fi
+      args:
+        creates: /tmp/checkmk.deb
+
+    - name: Install Checkmk dependencies and package
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.raw: |
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get install -y /tmp/checkmk.deb || (apt-get install -f -y && apt-get install -y /tmp/checkmk.deb)
+      changed_when: true
+
+    - name: Create Checkmk site
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.raw: |
+        if ! omd sites | grep -q cmk; then
+          omd create cmk
+          echo '{{ vault_checkmk_password }}' | htpasswd -i /omd/sites/cmk/etc/htpasswd cmkadmin
+          omd start cmk
+        fi
+      changed_when: true
+      no_log: true
+
+    - name: Ensure Checkmk site is started
+      delegate_to: checkmk
+      connection: community.general.lxd
+      ansible.builtin.raw: omd start cmk || true
+      changed_when: false
 
     - name: Wait for Checkmk to be ready
       ansible.builtin.uri:
@@ -241,34 +365,91 @@
     - name: Display Checkmk access info
       ansible.builtin.debug:
         msg: |
-          Checkmk deployed on {{ mc_hostname }} ({{ ansible_host }}).
+          Checkmk deployed in LXD container 'checkmk' on {{ mc_hostname }}.
 
-          URL:      http://{{ ansible_host }}:8090/cmk/
+          URL:      https://checkmk.{{ domain }}/cmk/
           User:     cmkadmin
           Password: <see vault>
 
-          To expose via Traefik: checkmk.evlab.ch → http://{{ ansible_host }}:8090
-
 ##############################################################################
-# Phase 3 — Automation stack (n8n + ansible-webhook)
+# Phase 3 — Automation stack (n8n + ansible-webhook, LXD container)
 ##############################################################################
 - name: "MC Services — Automation stack (n8n + ansible-webhook)"
   hosts: microcloud[0]
   become: true
   tags: [mc_automation]
   tasks:
-    - name: Ensure git is installed
+    - name: Create automation LXD container
+      community.general.lxd_container:
+        name: automation
+        ignore_volatile_options: true
+        state: started
+        source:
+          type: image
+          mode: pull
+          server: https://cloud-images.ubuntu.com/releases/
+          protocol: simplestreams
+          alias: "24.04"
+        profiles: ["default"]
+        devices:
+          n8n:
+            type: proxy
+            listen: "tcp:0.0.0.0:5678"
+            connect: "tcp:127.0.0.1:5678"
+          webhook:
+            type: proxy
+            listen: "tcp:0.0.0.0:{{ ansible_webhook_port }}"
+            connect: "tcp:127.0.0.1:8000"
+          nfs-datastore:
+            type: disk
+            source: /srv/datastore
+            path: /srv/datastore
+        config:
+          limits.cpu: "2"
+          limits.memory: 4GB
+        wait_for_ipv4_addresses: true
+        timeout: 600
+
+    - name: Wait for cloud-init to finish in automation container
+      delegate_to: automation
+      connection: community.general.lxd
+      ansible.builtin.raw: cloud-init status --wait
+      changed_when: false
+
+    - name: Install prerequisites in automation container
+      delegate_to: automation
+      connection: community.general.lxd
+      ansible.builtin.raw: |
+        apt-get update
+        apt-get install -y python3 python3-pip python3-venv git curl ca-certificates gnupg
+      changed_when: true
+
+    # --- Docker inside LXD for n8n + webhook (they need Docker images) ---
+    - name: Install Docker inside automation container
+      delegate_to: automation
+      connection: community.general.lxd
+      ansible.builtin.raw: |
+        if ! command -v docker &>/dev/null; then
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          chmod a+r /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable" > /etc/apt/sources.list.d/docker.list
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        fi
+      changed_when: true
+
+    - name: Ensure git is installed on host for repo clone
       ansible.builtin.apt:
         name: git
         state: present
 
-    - name: Create automation directories
+    - name: Create automation directories on host
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         mode: "0755"
       loop:
-        - "{{ automation_dir }}"
         - "{{ secrets_dir }}"
         - /srv/datastore/n8n
         - /srv/datastore/homelab-dns
@@ -280,9 +461,11 @@
         version: main
         update: true
 
-    - name: Deploy automation docker-compose
+    - name: Deploy docker-compose inside automation container
+      delegate_to: automation
+      connection: community.general.lxd
       ansible.builtin.copy:
-        dest: "{{ automation_dir }}/docker-compose.yml"
+        dest: /opt/docker-compose.yml
         mode: "0640"
         content: |
           services:
@@ -301,23 +484,21 @@
                 - N8N_ENCRYPTION_KEY={{ n8n_encryption_key }}
               volumes:
                 - /srv/datastore/n8n:/home/node/.n8n
-              labels:
-                - "com.centurylinklabs.watchtower.enable=false"
 
             ansible-webhook:
               container_name: ansible-webhook
               build: /srv/datastore/homelab-dns/ansible-webhook
               restart: unless-stopped
               ports:
-                - "{{ ansible_webhook_port }}:8000"
+                - "8000:8000"
               environment:
                 - WEBHOOK_API_KEY={{ ansible_webhook_api_key }}
                 - PLAYBOOKS_DIR=/playbooks
                 - LOG_TAIL=200
               volumes:
                 - /srv/datastore/homelab-dns:/playbooks:ro
-                - {{ secrets_dir }}/id_rsa:/root/.ssh/id_rsa:ro
-                - {{ secrets_dir }}/vault_pass:/vault_pass:ro
+                - /opt/secrets/id_rsa:/root/.ssh/id_rsa:ro
+                - /opt/secrets/vault_pass:/vault_pass:ro
               depends_on:
                 - n8n
               healthcheck:
@@ -326,16 +507,21 @@
                 timeout: 5s
                 retries: 5
                 start_period: 15s
-              labels:
-                - "com.centurylinklabs.watchtower.enable=false"
-      notify: Restart automation stack
       no_log: true
 
-    - name: Deploy automation stack
-      community.docker.docker_compose_v2:
-        project_src: "{{ automation_dir }}"
-        build: always
-        state: present
+    - name: Create secrets directory inside container
+      delegate_to: automation
+      connection: community.general.lxd
+      ansible.builtin.file:
+        path: /opt/secrets
+        state: directory
+        mode: "0700"
+
+    - name: Start automation stack inside container
+      delegate_to: automation
+      connection: community.general.lxd
+      ansible.builtin.raw: cd /opt && docker compose up -d --build
+      changed_when: true
 
     - name: Wait for n8n to be ready
       ansible.builtin.uri:
@@ -346,39 +532,22 @@
       delay: 10
       until: n8n_ready.status == 200
 
-    - name: Wait for ansible-webhook to be ready
-      ansible.builtin.uri:
-        url: "http://localhost:{{ ansible_webhook_port }}/health"
-        status_code: 200
-      register: webhook_ready
-      retries: 12
-      delay: 10
-      until: webhook_ready.status == 200
-
     - name: Display automation access info
       ansible.builtin.debug:
         msg: |
-          Automation stack deployed on {{ mc_hostname }} ({{ ansible_host }}).
+          Automation stack deployed in LXD container 'automation' on {{ mc_hostname }}.
 
           n8n:             https://n8n.{{ domain }}
           ansible-webhook: https://ansible.{{ domain }}
           Swagger UI:      https://ansible.{{ domain }}/docs
 
-          n8n data:     /srv/datastore/n8n (NFS-backed)
-          Playbooks:    /srv/datastore/homelab-dns (NFS-backed)
-          Secrets:      {{ secrets_dir }} (local, not on NFS)
+          Secrets must be placed inside the container:
+            lxc file push ~/.ssh/id_rsa automation/opt/secrets/id_rsa
+            lxc file push vault_pass automation/opt/secrets/vault_pass
 
-          Before first run, place secrets on mc-node-01:
-            cp ~/.ssh/id_rsa {{ secrets_dir }}/id_rsa
-            echo 'vault-password' > {{ secrets_dir }}/vault_pass
-            chmod 600 {{ secrets_dir }}/id_rsa {{ secrets_dir }}/vault_pass
-
-  handlers:
-    - name: Restart automation stack
-      community.docker.docker_compose_v2:
-        project_src: "{{ automation_dir }}"
-        state: restarted
-
+##############################################################################
+# Phase 4 — Checkmk agents on all nodes
+##############################################################################
 - name: "MC Services — Checkmk agents on all nodes"
   hosts: dns_servers:microcloud
   become: true
@@ -386,7 +555,7 @@
   tasks:
     - name: Download Checkmk agent from server
       ansible.builtin.get_url:
-        url: "http://172.16.86.13:8090/cmk/check_mk/agents/check-mk-agent_2.3.0p1-1_all.deb"
+        url: "http://172.16.86.13:8090/cmk/check_mk/agents/check-mk-agent_2.3.0p30-1_all.deb"
         dest: /tmp/check-mk-agent.deb
         mode: "0644"
       failed_when: false

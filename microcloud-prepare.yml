@@ -49,6 +49,11 @@
         update_cache: true
         cache_valid_time: 3600
 
+    - name: Ensure keepalived is not installed on MicroCloud nodes
+      ansible.builtin.apt:
+        name: keepalived
+        state: absent
+
     - name: Install base packages
       ansible.builtin.apt:
         name:
