@@ -1,12 +1,14 @@
 ---
-name: Ansible Lint
+name: Ansible Quality
 
 on:
   push:
     branches: [main]
   pull_request:
+
 jobs:
   lint:
+    name: ansible-lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,4 +19,30 @@ jobs:
         run: uvx --with ansible ansible-galaxy collection install -r requirements.yml
 
       - name: Run ansible-lint
-        run: uvx ansible-lint --fix
+        run: uvx --with ansible-lint ansible-lint
+
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Run yamllint
+        run: uvx yamllint .
+
+  molecule:
+    name: molecule
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install Ansible collections
+        run: uvx --with ansible ansible-galaxy collection install -r requirements.yml
+
+      - name: Run molecule tests
+        run: uvx --with molecule --with molecule-plugins[docker] --with ansible molecule test --all
+        continue-on-error: true  # no molecule scenarios yet — will fail gracefully
