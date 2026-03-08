@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-13 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
+14 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
 
 ```mermaid
 graph TD
@@ -17,24 +17,28 @@ graph TD
     ADR011["ADR-011\nMermaid Diagram\nStandard"]
     ADR012["ADR-012\nuv Python\nTooling"]
     ADR013["ADR-013\nClaude API\nAnsible Tooling"]
+    ADR014["ADR-014\nSeparate OS + Container\nPatch Playbooks"]
 
     INFRA["Infrastructure\nLayer"]
     NET["Network\nServices"]
     MON["Observability"]
     STORE["Storage &\nApps"]
     TOOLING["Dev Tooling &\nDocumentation"]
+    OPS["Operations"]
 
     INFRA --> ADR001
     NET --> ADR002 & ADR003 & ADR004 & ADR006 & ADR007
     MON --> ADR008
     STORE --> ADR005 & ADR009
     TOOLING --> ADR010 & ADR011 & ADR012 & ADR013
+    OPS --> ADR014
 
     style INFRA fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
     style NET fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
     style MON fill:#fff3e0,stroke:#ff9800,stroke-width:2px
     style STORE fill:#fce4ec,stroke:#e91e63,stroke-width:2px
     style TOOLING fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    style OPS fill:#e0f7fa,stroke:#00bcd4,stroke-width:2px
 ```
 
 | ADR | Title | Status |
@@ -52,3 +56,4 @@ graph TD
 | [ADR-011](adr-011-mermaid-diagrams.md) | Mermaid as Documentation Diagram Standard | ✅ Accepted |
 | [ADR-012](adr-012-uv-python-tooling.md) | uv for Python Tooling Scripts | ✅ Accepted |
 | [ADR-013](adr-013-claude-api-ansible-tooling.md) | Claude API for Ansible AI Tooling | ✅ Accepted |
+| [ADR-014](adr-014-patch-management-playbooks.md) | Separate OS and Container Patch Management Playbooks | ✅ Accepted |

@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `update.yml` — standalone OS patch management playbook: apt dist-upgrade on all 5 nodes (`serial: 1`), conditional reboot via `/var/run/reboot-required`, LXD evacuate/restore for MicroCloud nodes, post-reboot service health checks (Docker, Technitium, Traefik, LXD, NFS)
+- `update-containers.yml` — standalone container/binary update playbook: node_exporter binary upgrade on all nodes, Technitium/Traefik/cAdvisor image pull + recreate on dns_servers, Prometheus/Grafana/Checkmk image pull + recreate on microcloud[0], with post-update health checks
+- ADR-014: Separate OS and Container Patch Management Playbooks
 - PiKVM DHCP reservation (172.16.86.3) and DNS records
 - WireGuard client installation guide (iPhone + macOS) in User Guide
 - Troubleshooting: ad blocking not working (blocklist download)

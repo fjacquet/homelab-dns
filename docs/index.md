@@ -78,5 +78,6 @@ ansible-playbook -i inventory.yml microcloud-services.yml
 - **Technitium in Docker** — no .deb package available, `network_mode: host` for DHCP broadcast
 - **keepalived VIP** — sub-10s failover vs DNS round-robin (minutes)
 - **Dual monitoring** — Prometheus/Grafana (metrics) + Checkmk (SNMP, auto-discovery, alerting)
+- **Separate patch playbooks** — `update.yml` (OS + reboot) and `update-containers.yml` (images + node_exporter) run independently; no Watchtower
 
 See [Architecture Decision Records](adr/index.md) for full rationale.

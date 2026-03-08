@@ -1,0 +1,138 @@
+---
+- name: Update node_exporter on all nodes
+  hosts: dns_servers:microcloud
+  become: true
+  serial: 1
+  tags: [update-containers]
+  tasks:
+    - name: Download node_exporter {{ node_exporter_version }}
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+        checksum: "sha256:https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/sha256sums.txt"
+        mode: "0644"
+
+    - name: Extract node_exporter archive
+      ansible.builtin.unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install node_exporter binary
+      ansible.builtin.copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        mode: "0755"
+        remote_src: true
+      notify: Restart node_exporter
+
+    - name: Clean up node_exporter temp files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/node_exporter.tar.gz
+        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+
+  handlers:
+    - name: Restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+
+- name: Update containers on dns_servers
+  hosts: dns_servers
+  become: true
+  serial: 1
+  tags: [update-containers]
+  tasks:
+    - name: Pull latest Technitium image
+      community.docker.docker_compose_v2_pull:
+        project_src: "{{ docker_base_dir }}/technitium"
+
+    - name: Recreate Technitium container with new image
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/technitium"
+        recreate: always
+        pull: never
+
+    - name: Pull latest Traefik image
+      community.docker.docker_compose_v2_pull:
+        project_src: "{{ docker_base_dir }}/traefik"
+
+    - name: Recreate Traefik container with new image
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/traefik"
+        recreate: always
+        pull: never
+
+    - name: Pull latest cAdvisor image
+      community.docker.docker_image_pull:
+        name: gcr.io/cadvisor/cadvisor
+        tag: latest
+
+    - name: Recreate cAdvisor container with new image
+      community.docker.docker_container:
+        name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:latest
+        state: started
+        recreate: true
+        restart_policy: unless-stopped
+        privileged: true
+        volumes:
+          - /:/rootfs:ro
+          - /var/run:/var/run:ro
+          - /sys:/sys:ro
+          - /var/lib/docker/:/var/lib/docker:ro
+        ports:
+          - "{{ cadvisor_port }}:8080"
+
+    - name: Verify Technitium is responding after update
+      ansible.builtin.uri:
+        url: "http://localhost:5380"
+        status_code: 200
+      register: technitium_check
+      until: technitium_check.status == 200
+      retries: 12
+      delay: 10
+
+    - name: Verify Traefik API is responding after update
+      ansible.builtin.uri:
+        url: "http://localhost:8080/api/rawdata"
+        status_code: 200
+      register: traefik_check
+      until: traefik_check.status == 200
+      retries: 12
+      delay: 10
+
+- name: Update containers on microcloud
+  hosts: microcloud[0]
+  become: true
+  tags: [update-containers]
+  tasks:
+    - name: Pull latest Prometheus and Grafana images
+      community.docker.docker_compose_v2_pull:
+        project_src: /opt/monitoring
+
+    - name: Recreate Prometheus and Grafana containers with new images
+      community.docker.docker_compose_v2:
+        project_src: /opt/monitoring
+        recreate: always
+        pull: never
+
+    - name: Pull latest Checkmk image
+      community.docker.docker_image_pull:
+        name: checkmk/check-mk-raw
+        tag: latest
+
+    - name: Recreate Checkmk container with new image
+      community.docker.docker_container:
+        name: checkmk
+        image: checkmk/check-mk-raw:latest
+        state: started
+        recreate: true
+        restart_policy: unless-stopped
+        ports:
+          - "8090:5000"
+        volumes:
+          - "{{ checkmk_dir }}:/omd/sites"

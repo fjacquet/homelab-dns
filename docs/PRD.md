@@ -41,6 +41,7 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 | G7 | Monitoring with alerting | P1 |
 | G8 | Nightly backups to Synology | P1 |
 | G9 | MicroCloud compute cluster | P2 |
+| G10 | Automated patch management for all nodes | P1 |
 
 ---
 
@@ -148,7 +149,22 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 | FR-MC-03 | NFS shared storage from Synology (datastore + isofiles) |
 | FR-MC-04 | No Ceph (too complex for 3-node homelab) |
 
-### 4.7 Backup (FR-BAK)
+### 4.7 Patch Management (FR-PATCH)
+
+| ID | Requirement |
+|----|-------------|
+| FR-PATCH-01 | OS packages upgraded on all 5 nodes via `update.yml` (apt dist-upgrade) |
+| FR-PATCH-02 | Nodes updated one at a time (`serial: 1`) to preserve HA during upgrades |
+| FR-PATCH-03 | Automatic reboot only when `/var/run/reboot-required` is present |
+| FR-PATCH-04 | LXD instances evacuated before MicroCloud node reboot and restored after |
+| FR-PATCH-05 | Docker Engine upgraded as part of apt full upgrade |
+| FR-PATCH-06 | Docker service health verified on all nodes after reboot |
+| FR-PATCH-07 | Container images (Technitium, Traefik, cAdvisor, Prometheus, Grafana, Checkmk) pulled and recreated via `update-containers.yml` |
+| FR-PATCH-08 | `node_exporter` binary upgraded to `node_exporter_version` via `update-containers.yml` |
+| FR-PATCH-09 | Service health checks (Technitium `:5380`, Traefik `:8080`) run after container updates |
+| FR-PATCH-10 | Reboot step skippable via `--skip-tags reboot` |
+
+### 4.8 Backup (FR-BAK)
 
 | ID | Requirement |
 |----|-------------|
@@ -170,6 +186,8 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 | NFR-05 | Infrastructure services excluded from Watchtower |
 | NFR-06 | Ports 5380 and 8080 locked to localhost via iptables |
 | NFR-07 | VRRP traffic allowed between infra1 and infra2 |
+| NFR-08 | Patch management separate from deployment — `update.yml` and `update-containers.yml` are standalone operational playbooks, not aliases for `site.yml` |
+| NFR-09 | Watchtower disabled for all infrastructure containers — image updates are explicit, operator-initiated |
 
 ---
 
