@@ -26,6 +26,7 @@ dns_a_records:
   - { name: "*.evlab.ch", ip: "172.16.86.20" } # wildcard → VIP keepalived (Traefik HA)
   - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
   - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
+  - { name: "pikvm.evlab.ch", ip: "172.16.86.3" }
   - { name: "switch.evlab.ch", ip: "172.16.86.2" }
   - { name: "hue.evlab.ch", ip: "172.16.86.6" }
   - { name: "weather.evlab.ch", ip: "172.16.86.8" }
@@ -38,6 +39,7 @@ dns_a_records:
 
 dns_ptr_records:
   - { ip: "172.16.86.1", name: "gateway.evlab.ch" }
+  - { ip: "172.16.86.3", name: "pikvm.evlab.ch" }
   - { ip: "172.16.86.2", name: "switch.evlab.ch" }
   - { ip: "172.16.86.6", name: "hue.evlab.ch" }
   - { ip: "172.16.86.8", name: "weather.evlab.ch" }
@@ -52,6 +54,7 @@ dns_ptr_records:
 
 # === DHCP Reservations ===
 dhcp_reservations:
+  - { mac: "2C:CF:67:43:72:07", ip: "172.16.86.3", name: "PiKVM" }
   - { mac: "8C:3B:AD:69:0B:2C", ip: "172.16.86.2", name: "GC108PP switch" }
   - { mac: "EC:B5:FA:AC:EF:49", ip: "172.16.86.6", name: "Hue Bridge" }
   - { mac: "70:EE:50:80:1B:12", ip: "172.16.86.8", name: "Weather Station" }
@@ -142,8 +145,8 @@ infomaniak_vpn_record_id: "{{ vault_infomaniak_vpn_record_id }}"
 # === NFS (Synology shared storage for MicroCloud) ===
 nfs_server: "{{ nas_ip }}"
 nfs_mounts:
-  - { export: /volume1/datastore, mountpoint: /mnt/datastore }
-  - { export: /volume1/isofiles, mountpoint: /mnt/isofiles }
+  - { export: /volume1/datastore, mountpoint: /srv/datastore }
+  - { export: /volume1/isofiles, mountpoint: /srv/isofiles }
 
 # === Monitoring (exporters) ===
 node_exporter_version: "1.9.0"

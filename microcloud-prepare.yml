@@ -62,7 +62,18 @@
           - nfs-common
         state: present
 
+    - name: Deploy netplan (DHCP + DNS override)
+      ansible.builtin.template:
+        src: templates/netplan-mc.yml.j2
+        dest: /etc/netplan/01-mc.yaml
+        owner: root
+        group: root
+        mode: "0600"
+      notify: apply netplan
+
   handlers:
+    - name: apply netplan
+      ansible.builtin.command: netplan apply
     - name: restart resolved
       ansible.builtin.systemd:
         name: systemd-resolved
@@ -103,10 +114,9 @@
   tags: [mc_nfs]
   tasks:
     - name: Create NFS mount points
-      ansible.builtin.file:
-        path: "{{ item.mountpoint }}"
-        state: directory
-        mode: "0755"
+      ansible.builtin.command:
+        cmd: "mkdir -p {{ item.mountpoint }}"
+        creates: "{{ item.mountpoint }}"
       loop: "{{ nfs_mounts }}"
       loop_control:
         label: "{{ item.mountpoint }}"
@@ -246,7 +256,7 @@
              - Skip Ceph setup (answer "no" or skip disk selection)
              - Enable OVN networking
           4. After init, create LXD storage pools:
-             lxc storage create datastore dir source=/mnt/datastore
-             lxc storage create isofiles dir source=/mnt/isofiles
+             lxc storage create datastore dir source=/srv/datastore
+             lxc storage create isofiles dir source=/srv/isofiles
           5. Deploy monitoring: ansible-playbook -i inventory.yml microcloud-services.yml
       run_once: true

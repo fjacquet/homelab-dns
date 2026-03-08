@@ -2,15 +2,10 @@ network:
   version: 2
   ethernets:
     {{ wireguard_interface }}:
-      addresses:
-        - {{ infra_ip }}/24
-      routes:
-        - to: default
-          via: {{ gateway }}
+      dhcp4: true
       nameservers:
         addresses:
           - {{ dns_primary_ip }}
           - {{ dns_secondary_ip }}
-          - 1.1.1.1
         search:
           - {{ domain }}

@@ -131,6 +131,16 @@
         group: "{{ ansible_user }}"
         mode: "0755"
 
+    - name: Create shared directories (all infra nodes)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - "{{ docker_base_dir }}/ddns"
+
     - name: Create primary-only directories
       when: inventory_hostname in groups['dns_primary']
       ansible.builtin.file:
@@ -142,7 +152,6 @@
       loop:
         - "{{ docker_base_dir }}/traefik/config/dynamic"
         - "{{ docker_base_dir }}/traefik/certs"
-        - "{{ docker_base_dir }}/ddns"
 
 ##############################################################################
 # Phase 3 — Technitium DNS (tous les noeuds)
@@ -540,9 +549,7 @@
         method: GET
       failed_when: false
 
-    # Note: DHCP reservations are added only on the primary
-    - name: Add DHCP reservations (primary only)
-      when: inventory_hostname in groups['dns_primary']
+    - name: Add DHCP reservations (both servers for HA)
       ansible.builtin.uri:
         url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/addReservedLease"
         method: POST
@@ -815,31 +822,6 @@
           - /etc/wireguard:/etc/wireguard:ro
         env:
           PROMETHEUS_WIREGUARD_EXPORTER_PORT: "{{ wireguard_exporter_port | string }}"
-
-- name: "Phase 10 — Traefik metrics endpoint"
-  hosts: dns_servers
-  become: true
-  tags: [monitoring, traefik_metrics]
-  tasks:
-    - name: Ensure Traefik metrics are enabled in static config
-      ansible.builtin.blockinfile:
-        path: "{{ docker_base_dir }}/traefik/config/traefik.yml"
-        marker: "# {mark} ANSIBLE MANAGED - PROMETHEUS METRICS"
-        block: |
-          metrics:
-            prometheus:
-              addEntryPointsLabels: true
-              addRoutersLabels: true
-              addServicesLabels: true
-              entryPoint: websecure
-      notify: restart traefik
-
-  handlers:
-    - name: restart traefik
-      community.docker.docker_container:
-        name: traefik
-        state: started
-        restart: true
 
 ##############################################################################
 # Verification
