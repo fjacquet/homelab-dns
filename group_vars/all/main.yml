@@ -24,6 +24,11 @@ technitium_blocklists:
 # === DNS Records ===
 dns_a_records:
   - { name: "*.evlab.ch", ip: "172.16.86.20" } # wildcard → VIP keepalived (Traefik HA)
+  - { name: "opt1.evlab.ch", ip: "172.16.86.11" }
+  - { name: "opt2.evlab.ch", ip: "172.16.86.12" }
+  - { name: "opt3.evlab.ch", ip: "172.16.86.13" }
+  - { name: "opt4.evlab.ch", ip: "172.16.86.14" }
+  - { name: "opt5.evlab.ch", ip: "172.16.86.15" }
   - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
   - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
   - { name: "pikvm.evlab.ch", ip: "172.16.86.3" }
