@@ -1,4 +1,29 @@
 ---
+# Clean up old binary installation if present
+- name: Stop old node_exporter service
+  ansible.builtin.systemd:
+    name: node_exporter
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove old node_exporter systemd unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/node_exporter.service
+    state: absent
+  notify: Reload systemd
+
+- name: Remove old node_exporter binary
+  ansible.builtin.file:
+    path: /usr/local/bin/node_exporter
+    state: absent
+
+- name: Remove old node_exporter user
+  ansible.builtin.user:
+    name: node_exporter
+    state: absent
+
+# Install via apt
 - name: Install prometheus-node-exporter
   ansible.builtin.apt:
     name: prometheus-node-exporter
