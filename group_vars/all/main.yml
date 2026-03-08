@@ -145,7 +145,6 @@ nfs_mounts:
   - { export: /volume1/isofiles, mountpoint: /srv/isofiles }
 
 # === Monitoring (exporters) ===
-node_exporter_version: "1.9.0"
 node_exporter_port: 9100
 cadvisor_port: 9101
 wireguard_exporter_port: 9586
