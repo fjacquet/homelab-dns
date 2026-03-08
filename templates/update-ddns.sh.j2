@@ -1,0 +1,23 @@
+#!/bin/bash
+# DDNS update script - Infomaniak API
+# Met a jour vpn.evlab.ch avec l'IP publique courante
+
+set -euo pipefail
+
+CURRENT_IP=$(curl -s --max-time 10 https://api.ipify.org)
+INFOMANIAK_TOKEN="{{ infomaniak_api_token }}"
+DOMAIN_ID="{{ infomaniak_domain_id }}"
+RECORD_ID="{{ infomaniak_vpn_record_id }}"
+
+if [[ -z "$CURRENT_IP" ]]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') ERROR: impossible de recuperer l'IP publique"
+    exit 1
+fi
+
+RESPONSE=$(curl -s -X PUT \
+    "https://api.infomaniak.com/1/domain/$DOMAIN_ID/dns/record/$RECORD_ID" \
+    -H "Authorization: Bearer $INFOMANIAK_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\"type\":\"A\",\"source\":\"vpn\",\"target\":\"$CURRENT_IP\"}")
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') IP=$CURRENT_IP response=$RESPONSE"

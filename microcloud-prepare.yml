@@ -1,0 +1,252 @@
+---
+##############################################################################
+# MicroCloud — Prepare nodes (run BEFORE microcloud init)
+##############################################################################
+
+##############################################################################
+# Phase 1 — Base setup (hostname, packages, DNS)
+##############################################################################
+- name: "MC Phase 1 — Base setup"
+  hosts: microcloud
+  become: true
+  tags: [mc_base]
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ mc_hostname }}"
+
+    - name: Update /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^127\\.0\\.1\\.1"
+        line: "127.0.1.1 {{ mc_hostname }}"
+
+    - name: Disable systemd-resolved stub listener
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: "^#?DNSStubListener="
+        line: "DNSStubListener=no"
+      notify: restart resolved
+
+    - name: Create resolved.conf.d directory
+      ansible.builtin.file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Set DNS to Technitium (infra1/infra2)
+      ansible.builtin.copy:
+        dest: /etc/systemd/resolved.conf.d/dns.conf
+        mode: "0644"
+        content: |
+          [Resolve]
+          DNS={{ dns_primary_ip }} {{ dns_secondary_ip }}
+          Domains={{ domain }}
+      notify: restart resolved
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - jq
+          - htop
+          - iotop
+          - net-tools
+          - rsync
+          - nfs-common
+        state: present
+
+  handlers:
+    - name: restart resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+
+##############################################################################
+# Phase 2 — Install MicroCloud snaps (sans MicroCeph)
+##############################################################################
+- name: "MC Phase 2 — Install snaps"
+  hosts: microcloud
+  become: true
+  tags: [mc_snaps]
+  tasks:
+    - name: Install snapd
+      ansible.builtin.apt:
+        name: snapd
+        state: present
+
+    - name: Install MicroCloud and dependencies (no MicroCeph)
+      community.general.snap:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - lxd
+        - microovn
+        - microcloud
+
+    - name: Hold snap auto-refresh during setup
+      ansible.builtin.command: snap refresh --hold
+      changed_when: true
+
+##############################################################################
+# Phase 3 — NFS mount (Synology shared storage)
+##############################################################################
+- name: "MC Phase 3 — NFS Synology mounts"
+  hosts: microcloud
+  become: true
+  tags: [mc_nfs]
+  tasks:
+    - name: Create NFS mount points
+      ansible.builtin.file:
+        path: "{{ item.mountpoint }}"
+        state: directory
+        mode: "0755"
+      loop: "{{ nfs_mounts }}"
+      loop_control:
+        label: "{{ item.mountpoint }}"
+
+    - name: Mount NFS exports from Synology
+      ansible.posix.mount:
+        path: "{{ item.mountpoint }}"
+        src: "{{ nfs_server }}:{{ item.export }}"
+        fstype: nfs
+        opts: rw,hard,intr,rsize=32768,wsize=32768,timeo=14,nfsvers=4.1
+        state: mounted
+      loop: "{{ nfs_mounts }}"
+      loop_control:
+        label: "{{ item.mountpoint }}"
+
+    - name: Verify NFS mounts
+      ansible.builtin.command: df -h {{ item.mountpoint }}
+      register: nfs_check
+      changed_when: false
+      loop: "{{ nfs_mounts }}"
+      loop_control:
+        label: "{{ item.mountpoint }}"
+
+    - name: Display NFS status
+      ansible.builtin.debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ nfs_check.results }}"
+      loop_control:
+        label: "{{ item.item.mountpoint }}"
+
+##############################################################################
+# Phase 4 — Node exporter (monitoring)
+##############################################################################
+- name: "MC Phase 4 — Node Exporter"
+  hosts: microcloud
+  become: true
+  tags: [mc_monitoring]
+  tasks:
+    - name: Create node_exporter system user
+      ansible.builtin.user:
+        name: node_exporter
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    - name: Download node_exporter
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+        mode: "0644"
+
+    - name: Extract node_exporter
+      ansible.builtin.unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install node_exporter binary
+      ansible.builtin.copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+      notify: restart node_exporter
+
+    - name: Deploy node_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter \
+            --web.listen-address=:{{ node_exporter_port }} \
+            --collector.systemd \
+            --collector.processes
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart node_exporter
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Clean up download
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/node_exporter.tar.gz
+        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+
+  handlers:
+    - name: restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+        daemon_reload: true
+
+##############################################################################
+# Summary
+##############################################################################
+- name: "MC — Summary"
+  hosts: microcloud
+  become: false
+  tags: [mc_base, mc_snaps, mc_nfs, mc_monitoring]
+  tasks:
+    - name: Next steps
+      ansible.builtin.debug:
+        msg: |
+          Node {{ mc_hostname }} ({{ ansible_host }}) is ready.
+
+          NFS mounts configured:
+          {% for m in nfs_mounts %}
+            - {{ nfs_server }}:{{ m.export }} → {{ m.mountpoint }}
+          {% endfor %}
+
+          Next steps:
+          1. Verify Synology NFS permissions for 172.16.86.13-15 (rw, no_root_squash)
+          2. SSH into mc-node-01: ssh fjacquet@172.16.86.13
+          3. Run: sudo microcloud init
+             - Skip Ceph setup (answer "no" or skip disk selection)
+             - Enable OVN networking
+          4. After init, create LXD storage pools:
+             lxc storage create datastore dir source=/mnt/datastore
+             lxc storage create isofiles dir source=/mnt/isofiles
+          5. Deploy monitoring: ansible-playbook -i inventory.yml microcloud-services.yml
+      run_once: true

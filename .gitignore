@@ -1,0 +1,17 @@
+# Ansible
+*.retry
+group_vars/all/vault.yml
+
+# Secrets
+.vault_pass
+*.pem
+*.key
+.env*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

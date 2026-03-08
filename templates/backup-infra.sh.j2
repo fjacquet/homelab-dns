@@ -1,0 +1,35 @@
+#!/bin/bash
+# Backup nightly infra → Synology
+# Cron: 0 2 * * *
+
+set -euo pipefail
+
+DATE=$(date +%Y%m%d)
+BACKUP_DIR="/tmp/infra-backup-${DATE}"
+ARCHIVE="/tmp/{{ infra_hostname }}-${DATE}.tar.gz"
+NAS_DEST="fjacquet@{{ nas_ip }}:/volume1/backups/infra/"
+
+mkdir -p "$BACKUP_DIR"
+
+# Technitium config (both nodes)
+cp -r {{ docker_base_dir }}/technitium/config "$BACKUP_DIR/technitium"
+
+# Traefik config + certs (both nodes — HA)
+cp -r {{ docker_base_dir }}/traefik/certs "$BACKUP_DIR/traefik-certs"
+cp -r {{ docker_base_dir }}/traefik/config "$BACKUP_DIR/traefik-config"
+
+{% if inventory_hostname in groups['dns_secondary'] %}
+# WireGuard config natif (infra2 only)
+cp -r /etc/wireguard "$BACKUP_DIR/wireguard"
+{% endif %}
+
+{% if inventory_hostname in groups['dns_primary'] %}
+# Keepalived config (primary)
+cp -r /etc/keepalived "$BACKUP_DIR/keepalived"
+{% endif %}
+
+tar czf "$ARCHIVE" -C /tmp "$(basename $BACKUP_DIR)"
+rsync -az "$ARCHIVE" "$NAS_DEST"
+rm -rf "$BACKUP_DIR" "$ARCHIVE"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') backup OK → $NAS_DEST"

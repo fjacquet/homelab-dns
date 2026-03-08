@@ -1,0 +1,301 @@
+# User Guide
+
+## Homelab DNS/HTTPS/VPN Infrastructure
+
+---
+
+## Quick Reference
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Technitium DNS (infra1) | https://dns.evlab.ch | admin / vault password |
+| Technitium DNS (infra2) | https://dns2.evlab.ch | admin / vault password |
+| Home Assistant | https://homeassistant.evlab.ch | your HA credentials |
+| n8n | https://n8n.evlab.ch | your n8n credentials |
+| Stash | https://stash.evlab.ch | your Stash credentials |
+| pgAdmin | https://pgadmin.evlab.ch | your pgAdmin credentials |
+| NAS (DSM) | https://nas.evlab.ch | your Synology credentials |
+| Grafana | https://grafana.evlab.ch | admin / vault password |
+| Prometheus | https://prometheus.evlab.ch | no auth |
+| Checkmk | https://checkmk.evlab.ch | cmkadmin / vault password |
+
+---
+
+## Day-to-Day Operations
+
+### Check DNS Status
+
+```bash
+# Verify both DNS servers respond
+dig @172.16.86.11 homeassistant.evlab.ch +short   # → 172.16.86.20
+dig @172.16.86.12 homeassistant.evlab.ch +short   # → 172.16.86.20
+
+# Check ad blocking works
+dig @172.16.86.11 doubleclick.net +short           # → 0.0.0.0
+
+# Check reverse DNS
+dig @172.16.86.11 -x 172.16.86.10 +short          # → nas.evlab.ch
+```
+
+### Check Traefik / VIP Status
+
+```bash
+# Which node holds the VIP?
+ssh fjacquet@172.16.86.11 "ip addr show | grep 172.16.86.20"
+ssh fjacquet@172.16.86.12 "ip addr show | grep 172.16.86.20"
+
+# Check certificate validity
+curl -vI https://homeassistant.evlab.ch 2>&1 | grep -E "issuer:|expire"
+
+# Check Traefik dashboard (via SSH tunnel)
+ssh -L 8080:localhost:8080 fjacquet@172.16.86.11
+# Then open http://localhost:8080/dashboard/
+```
+
+### Check WireGuard Status
+
+```bash
+ssh fjacquet@172.16.86.12 "sudo wg show"
+```
+
+Output shows connected peers, last handshake time, and bytes transferred.
+
+### Check keepalived Status
+
+```bash
+ssh fjacquet@172.16.86.11 "systemctl status keepalived"
+ssh fjacquet@172.16.86.12 "systemctl status keepalived"
+
+# Check VRRP logs
+ssh fjacquet@172.16.86.11 "journalctl -u keepalived --no-pager -n 20"
+```
+
+---
+
+## Adding a New Device (DHCP Reservation)
+
+1. Get the device's MAC address
+2. Edit `group_vars/all/main.yml`:
+
+```yaml
+dhcp_reservations:
+  # ... existing entries ...
+  - { mac: "AA:BB:CC:DD:EE:FF", ip: "172.16.86.XX", name: "new-device" }
+```
+
+3. Add DNS records if needed:
+
+```yaml
+dns_a_records:
+  - { name: "new-device.evlab.ch", ip: "172.16.86.XX" }
+
+dns_ptr_records:
+  - { ip: "172.16.86.XX", name: "new-device.evlab.ch" }
+```
+
+4. Deploy:
+
+```bash
+ansible-playbook -i inventory.yml site.yml --tags dhcp,dns_records
+```
+
+---
+
+## Adding a New Traefik Service
+
+1. Edit `group_vars/all/main.yml`:
+
+```yaml
+traefik_services:
+  # ... existing entries ...
+  - { name: myapp, host: "myapp.evlab.ch", url: "http://172.16.86.XX:PORT" }
+```
+
+2. Deploy:
+
+```bash
+ansible-playbook -i inventory.yml site.yml --tags traefik
+```
+
+The wildcard `*.evlab.ch` already points to the VIP — no DNS change needed.
+
+---
+
+## Adding a New WireGuard Client
+
+1. Generate keys:
+
+```bash
+wg genkey | tee /tmp/newclient.key | wg pubkey > /tmp/newclient.pub
+echo "Private: $(cat /tmp/newclient.key)"
+echo "Public:  $(cat /tmp/newclient.pub)"
+```
+
+2. Add to Ansible Vault:
+
+```bash
+ansible-vault edit group_vars/all/vault.yml
+# Add: vault_wg_newclient_privkey and vault_wg_newclient_pubkey
+```
+
+3. Edit `group_vars/all/main.yml`:
+
+```yaml
+wireguard_peers_list:
+  # ... existing entries ...
+  - {
+      name: newclient,
+      ip: "10.13.13.5",
+      public_key: "{{ vault_wg_newclient_pubkey }}",
+      private_key: "{{ vault_wg_newclient_privkey }}",
+    }
+```
+
+4. Deploy:
+
+```bash
+ansible-playbook -i inventory.yml site.yml --tags wireguard
+```
+
+5. Retrieve client config:
+
+```bash
+scp fjacquet@172.16.86.12:/etc/wireguard/clients/newclient.conf .
+scp fjacquet@172.16.86.12:/etc/wireguard/clients/newclient.png .
+```
+
+Scan the QR code with WireGuard mobile app, or import the `.conf` file.
+
+---
+
+## Disaster Recovery
+
+### Scenario: infra1 (opt1) is down
+
+| Service | Impact | Recovery |
+|---------|--------|----------|
+| DNS primary | Secondary serves all queries | Clients use infra2 (.12) |
+| Traefik | VIP failover to infra2 in ~5s | Automatic |
+| DHCP | infra2 serves 20% scope | Existing leases valid 24h |
+| DDNS | Cron stops | IP update paused (5-min max drift) |
+| Backups | infra1 backup missed | infra2 backup continues |
+
+**Action:** Fix or replace opt1, then re-run Ansible:
+
+```bash
+ansible-playbook -i inventory.yml site.yml --limit opt1
+```
+
+### Scenario: infra2 (opt2) is down
+
+| Service | Impact | Recovery |
+|---------|--------|----------|
+| DNS secondary | Primary handles all queries | Transparent |
+| WireGuard | VPN down | No remote access until fixed |
+| DHCP | 20% scope unavailable | 80% scope on infra1 sufficient |
+
+### Scenario: Full rebuild from scratch
+
+1. Install Ubuntu 24.04 LTS Server on the Optiplex
+2. Set up SSH keys and sudo
+3. Run Ansible:
+
+```bash
+ansible-playbook -i inventory.yml site.yml
+```
+
+All configuration is in the playbooks — no manual steps beyond initial OS install.
+
+---
+
+## Maintenance
+
+### Update Technitium DNS
+
+```bash
+ssh fjacquet@172.16.86.11 "cd /opt/docker/technitium && docker compose pull && docker compose up -d"
+ssh fjacquet@172.16.86.12 "cd /opt/docker/technitium && docker compose pull && docker compose up -d"
+```
+
+### Update Traefik
+
+```bash
+ssh fjacquet@172.16.86.11 "cd /opt/docker/traefik && docker compose pull && docker compose up -d"
+ssh fjacquet@172.16.86.12 "cd /opt/docker/traefik && docker compose pull && docker compose up -d"
+```
+
+### Update WireGuard
+
+```bash
+ssh fjacquet@172.16.86.12 "sudo apt update && sudo apt upgrade wireguard wireguard-tools -y"
+```
+
+### Renew Let's Encrypt Certificate
+
+Automatic — Traefik renews before expiry. Check validity:
+
+```bash
+curl -vI https://homeassistant.evlab.ch 2>&1 | grep "expire date"
+```
+
+### Check Backups
+
+```bash
+ssh fjacquet@172.16.86.10 "ls -lh /volume1/backups/infra/"
+```
+
+---
+
+## Troubleshooting
+
+### DNS not resolving
+
+```bash
+# Check Technitium is running
+ssh fjacquet@172.16.86.11 "docker ps | grep technitium"
+
+# Check port 53 is bound
+ssh fjacquet@172.16.86.11 "ss -ulnp | grep ':53 '"
+
+# Check systemd-resolved is not interfering
+ssh fjacquet@172.16.86.11 "ss -tlnp | grep ':53 '"
+# Should show 0.0.0.0:53 (Technitium), NOT 127.0.0.53 (resolved)
+```
+
+### VIP not responding
+
+```bash
+# Check keepalived
+ssh fjacquet@172.16.86.11 "systemctl status keepalived"
+ssh fjacquet@172.16.86.11 "journalctl -u keepalived -n 20"
+
+# Check interface name matches config
+ssh fjacquet@172.16.86.11 "ip -br link | grep -v lo"
+# Must match wireguard_interface in group_vars (enp0s31f6)
+```
+
+### Certificate errors
+
+```bash
+# Check ACME logs
+ssh fjacquet@172.16.86.11 "docker logs traefik 2>&1 | grep -i acme"
+
+# Check Infomaniak API token
+ssh fjacquet@172.16.86.11 "docker inspect traefik | jq '.[0].Config.Env[] | select(startswith(\"INFOMANIAK\"))'"
+
+# Force certificate renewal (delete and restart)
+ssh fjacquet@172.16.86.11 "sudo rm /opt/docker/traefik/certs/acme.json && docker restart traefik"
+# Wait 2 minutes for DNS-01 challenge
+```
+
+### WireGuard "Key is not the correct length"
+
+Keys must be exactly 44 characters (base64 of 32 bytes, ending with `=`). In Ansible Vault, keys must be quoted:
+
+```yaml
+# Correct
+vault_wg_server_private_key: "aBcDeFg...xyz="
+
+# Wrong — YAML strips trailing =
+vault_wg_server_private_key: aBcDeFg...xyz=
+```

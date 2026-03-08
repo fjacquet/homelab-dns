@@ -1,0 +1,42 @@
+api:
+  dashboard: true
+  insecure: true   # Expose :8080 pour health check keepalived (localhost only via iptables)
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+certificatesResolvers:
+  infomaniak:
+    acme:
+      email: {{ traefik_acme_email }}
+      storage: /certs/acme.json
+      caServer: https://acme-v02.api.letsencrypt.org/directory
+      dnsChallenge:
+        provider: infomaniak
+        delayBeforeCheck: 60
+        resolvers:
+          - "nsany1.infomaniak.com:53"
+          - "nsany2.infomaniak.com:53"
+
+metrics:
+  prometheus:
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    entryPoint: websecure
+
+log:
+  level: INFO

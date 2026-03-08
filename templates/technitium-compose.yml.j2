@@ -1,0 +1,19 @@
+services:
+  technitium:
+    container_name: technitium-dns
+    image: {{ technitium_image }}
+    network_mode: host
+    environment:
+      - DNS_SERVER_DOMAIN={{ domain }}
+      - DNS_SERVER_ADMIN_PASSWORD={{ technitium_admin_password }}
+      - DNS_SERVER_RECURSION=AllowOnlyForPrivateNetworks
+      - DNS_SERVER_FORWARDERS={{ technitium_forwarders | join(',') }}
+    volumes:
+      - {{ docker_base_dir }}/technitium/config:/etc/dns
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    # Ports via network_mode: host
+    # 53/udp + 53/tcp  → DNS
+    # 67/udp           → DHCP
+    # 5380/tcp         → Web UI

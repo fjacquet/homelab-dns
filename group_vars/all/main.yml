@@ -1,0 +1,155 @@
+---
+# === Réseau ===
+domain: evlab.ch
+subnet: 172.16.86.0/24
+gateway: 172.16.86.1
+dns_primary_ip: 172.16.86.11
+dns_secondary_ip: 172.16.86.12
+nas_ip: 172.16.86.10
+
+# === Technitium ===
+technitium_image: technitium/dns-server:latest
+technitium_admin_password: "{{ vault_technitium_password }}"
+technitium_web_port: 5380
+
+technitium_forwarders:
+  - "https://cloudflare-dns.com/dns-query"
+  - "https://dns.google/dns-query"
+
+technitium_blocklists:
+  - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+  - "https://big.oisd.nl/domainswild"
+  - "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/hosts/pro.txt"
+
+# === DNS Records ===
+dns_a_records:
+  - { name: "*.evlab.ch", ip: "172.16.86.20" } # wildcard → VIP keepalived (Traefik HA)
+  - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
+  - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
+  - { name: "switch.evlab.ch", ip: "172.16.86.2" }
+  - { name: "hue.evlab.ch", ip: "172.16.86.6" }
+  - { name: "weather.evlab.ch", ip: "172.16.86.8" }
+  - { name: "nas.evlab.ch", ip: "172.16.86.10" }
+  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.13" }
+  - { name: "mc-node-02.evlab.ch", ip: "172.16.86.14" }
+  - { name: "mc-node-03.evlab.ch", ip: "172.16.86.15" }
+  - { name: "tvbox.evlab.ch", ip: "172.16.86.25" }
+  - { name: "roborock.evlab.ch", ip: "172.16.86.42" }
+
+dns_ptr_records:
+  - { ip: "172.16.86.1", name: "gateway.evlab.ch" }
+  - { ip: "172.16.86.2", name: "switch.evlab.ch" }
+  - { ip: "172.16.86.6", name: "hue.evlab.ch" }
+  - { ip: "172.16.86.8", name: "weather.evlab.ch" }
+  - { ip: "172.16.86.10", name: "nas.evlab.ch" }
+  - { ip: "172.16.86.11", name: "infra1.evlab.ch" }
+  - { ip: "172.16.86.12", name: "infra2.evlab.ch" }
+  - { ip: "172.16.86.13", name: "mc-node-01.evlab.ch" }
+  - { ip: "172.16.86.14", name: "mc-node-02.evlab.ch" }
+  - { ip: "172.16.86.15", name: "mc-node-03.evlab.ch" }
+  - { ip: "172.16.86.25", name: "tvbox.evlab.ch" }
+  - { ip: "172.16.86.42", name: "roborock.evlab.ch" }
+
+# === DHCP Reservations ===
+dhcp_reservations:
+  - { mac: "8C:3B:AD:69:0B:2C", ip: "172.16.86.2", name: "GC108PP switch" }
+  - { mac: "EC:B5:FA:AC:EF:49", ip: "172.16.86.6", name: "Hue Bridge" }
+  - { mac: "70:EE:50:80:1B:12", ip: "172.16.86.8", name: "Weather Station" }
+  - { mac: "F0:B3:EC:89:2E:01", ip: "172.16.86.9", name: "Unknown F0B3" }
+  - { mac: "90:09:D0:33:77:E0", ip: "172.16.86.10", name: "ds923fj Synology" }
+  - { mac: "64:00:6A:68:8A:F0", ip: "172.16.86.11", name: "opt1 infra1" }
+  - { mac: "64:00:6A:7D:7E:02", ip: "172.16.86.12", name: "opt2 infra2" }
+  - { mac: "64:00:6A:7D:89:4E", ip: "172.16.86.13", name: "opt3 mc-node-01" }
+  - { mac: "64:00:6A:79:7B:36", ip: "172.16.86.14", name: "opt4 mc-node-02" }
+  - {
+      mac: "64:00:6A:7D:86:F6",
+      ip: "172.16.86.15",
+      name: "ubuntu-server mc-node-03",
+    }
+  - { mac: "04:70:56:68:C5:9C", ip: "172.16.86.25", name: "TV-Box" }
+  - { mac: "68:B9:C2:12:71:B9", ip: "172.16.86.32", name: "Unknown 68B9" }
+  - { mac: "B0:4A:39:6F:B3:E9", ip: "172.16.86.42", name: "Roborock vacuum" }
+  - { mac: "38:42:0B:55:2B:16", ip: "172.16.86.43", name: "Sonos 1" }
+  - { mac: "48:A6:B8:12:72:D0", ip: "172.16.86.44", name: "Sonos Chambre" }
+  - { mac: "54:2A:1B:85:7A:B6", ip: "172.16.86.45", name: "Sonos Salon Beam" }
+  - { mac: "4C:20:B8:E6:A0:5D", ip: "172.16.86.99", name: "Unknown 4C20" }
+  - { mac: "86:6E:EF:29:26:70", ip: "172.16.86.109", name: "Samsung Fred" }
+  - { mac: "8C:CE:4E:57:61:C8", ip: "172.16.86.129", name: "Dryer plug" }
+  - { mac: "8C:CE:4E:57:5F:E1", ip: "172.16.86.130", name: "Jura plug" }
+  - { mac: "78:42:1C:F2:70:9F", ip: "172.16.86.133", name: "Uwave plug" }
+  - { mac: "8C:CE:4E:57:61:C7", ip: "172.16.86.134", name: "Wash plug" }
+  - { mac: "78:42:1C:F2:76:C3", ip: "172.16.86.135", name: "Robot plug" }
+  - { mac: "78:42:1C:F2:6F:3D", ip: "172.16.86.136", name: "Resmed plug" }
+
+# === Traefik + HA (keepalived) ===
+traefik_image: traefik:latest
+traefik_vip: 172.16.86.20
+keepalived_auth_pass: "{{ vault_keepalived_pass }}"
+infomaniak_api_token: "{{ vault_infomaniak_token }}"
+traefik_acme_email: fred@ljf.ch
+
+traefik_services:
+  - {
+      name: homeassistant,
+      host: "homeassistant.evlab.ch",
+      url: "http://172.16.86.10:8123",
+    }
+  - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.10:5678" }
+  - { name: stash, host: "stash.evlab.ch", url: "http://172.16.86.10:9999" }
+  - { name: pgadmin, host: "pgadmin.evlab.ch", url: "http://172.16.86.10:8888" }
+  - { name: dns, host: "dns.evlab.ch", url: "http://localhost:5380" }
+  - { name: dns2, host: "dns2.evlab.ch", url: "http://172.16.86.12:5380" }
+  - { name: nas, host: "nas.evlab.ch", url: "http://172.16.86.10:5000" }
+  # MicroCloud services (mc-node-01)
+  - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.13:3000" }
+  - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.13:9090" }
+  - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.13:8090" }
+
+# === WireGuard (natif, pas Docker) ===
+wireguard_server_url: vpn.evlab.ch
+wireguard_port: 51820
+wireguard_internal_subnet: "10.13.13.0/24"
+wireguard_interface: enp0s31f6 # interface LAN physique (Optiplex Micro)
+
+# Cles generees par: wg genkey | tee private.key | wg pubkey > public.key
+wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
+wireguard_server_public_key: "{{ vault_wg_server_public_key }}"
+
+wireguard_peers_list:
+  - {
+      name: iphone,
+      ip: "10.13.13.2",
+      public_key: "{{ vault_wg_iphone_pubkey }}",
+      private_key: "{{ vault_wg_iphone_privkey }}",
+    }
+  - {
+      name: macbook,
+      ip: "10.13.13.3",
+      public_key: "{{ vault_wg_macbook_pubkey }}",
+      private_key: "{{ vault_wg_macbook_privkey }}",
+    }
+  - {
+      name: ipad,
+      ip: "10.13.13.4",
+      public_key: "{{ vault_wg_ipad_pubkey }}",
+      private_key: "{{ vault_wg_ipad_privkey }}",
+    }
+
+# === DDNS Infomaniak ===
+infomaniak_domain_id: "{{ vault_infomaniak_domain_id }}"
+infomaniak_vpn_record_id: "{{ vault_infomaniak_vpn_record_id }}"
+
+# === NFS (Synology shared storage for MicroCloud) ===
+nfs_server: "{{ nas_ip }}"
+nfs_mounts:
+  - { export: /volume1/datastore, mountpoint: /mnt/datastore }
+  - { export: /volume1/isofiles, mountpoint: /mnt/isofiles }
+
+# === Monitoring (exporters) ===
+node_exporter_version: "1.9.0"
+node_exporter_port: 9100
+cadvisor_port: 9101
+wireguard_exporter_port: 9586
+
+# === Docker ===
+docker_base_dir: /opt/docker

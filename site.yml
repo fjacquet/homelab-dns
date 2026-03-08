@@ -1,0 +1,893 @@
+---
+# Playbook principal - Infrastructure DNS/HTTPS/VPN
+# Usage:
+#   ansible-playbook -i inventory.yml site.yml --ask-vault-pass
+#   ansible-playbook -i inventory.yml site.yml --tags docker     # Docker uniquement
+#   ansible-playbook -i inventory.yml site.yml --tags technitium  # DNS uniquement
+#   ansible-playbook -i inventory.yml site.yml --tags traefik     # Traefik uniquement
+#   ansible-playbook -i inventory.yml site.yml --tags wireguard   # WireGuard uniquement
+
+##############################################################################
+# Phase 0 — Preparation commune (tous les noeuds)
+##############################################################################
+- name: "Phase 0 — Preparation des noeuds infra"
+  hosts: dns_servers
+  become: true
+  tags: [base]
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ infra_hostname }}"
+
+    - name: Update /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^127\\.0\\.1\\.1"
+        line: "127.0.1.1 {{ infra_hostname }}.{{ domain }} {{ infra_hostname }}"
+
+    - name: Full system upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: full
+        autoremove: true
+      register: apt_upgrade
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - gnupg
+          - lsb-release
+          - ca-certificates
+          - rsync
+          - jq
+          - htop
+          - net-tools
+        state: present
+
+    - name: Deploy netplan config
+      ansible.builtin.template:
+        src: templates/netplan-infra.yml.j2
+        dest: /etc/netplan/01-infra.yaml
+        owner: root
+        group: root
+        mode: "0600"
+      notify: apply netplan
+
+    - name: Load WireGuard kernel module
+      community.general.modprobe:
+        name: wireguard
+        state: present
+
+    - name: Persist WireGuard module at boot
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/wireguard.conf
+        line: wireguard
+        create: true
+        mode: "0644"
+
+  handlers:
+    - name: apply netplan
+      ansible.builtin.command: netplan apply
+
+##############################################################################
+# Phase 0.3 — Docker
+##############################################################################
+- name: "Phase 0.3 — Install Docker"
+  hosts: dns_servers
+  become: true
+  tags: [docker]
+  tasks:
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install Docker via convenience script
+      when: docker_check.rc != 0
+      block:
+        - name: Download Docker install script
+          ansible.builtin.get_url:
+            url: https://get.docker.com
+            dest: /tmp/get-docker.sh
+            mode: "0755"
+
+        - name: Run Docker install script
+          ansible.builtin.command: /tmp/get-docker.sh
+          register: docker_install
+          changed_when: "'is already the newest version' not in docker_install.stdout"
+
+        - name: Clean up install script
+          ansible.builtin.file:
+            path: /tmp/get-docker.sh
+            state: absent
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+##############################################################################
+# Phase 0.5 — Repertoires
+##############################################################################
+- name: "Phase 0.5 — Create directories"
+  hosts: dns_servers
+  become: true
+  tags: [dirs]
+  tasks:
+    - name: Create Technitium directories
+      ansible.builtin.file:
+        path: "{{ docker_base_dir }}/technitium/config"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Create primary-only directories
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - "{{ docker_base_dir }}/traefik/config/dynamic"
+        - "{{ docker_base_dir }}/traefik/certs"
+        - "{{ docker_base_dir }}/ddns"
+
+##############################################################################
+# Phase 3 — Technitium DNS (tous les noeuds)
+##############################################################################
+- name: "Phase 3 — Deploy Technitium DNS"
+  hosts: dns_servers
+  become: true
+  tags: [technitium]
+  tasks:
+    - name: Deploy Technitium docker-compose.yml
+      ansible.builtin.template:
+        src: templates/technitium-compose.yml.j2
+        dest: "{{ docker_base_dir }}/technitium/docker-compose.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      notify: restart technitium
+
+    - name: Start Technitium
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/technitium"
+        state: present
+
+    - name: Wait for Technitium API
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/user/login?user=admin&pass={{ technitium_admin_password }}"
+        return_content: true
+      register: technitium_login
+      retries: 10
+      delay: 5
+      until: technitium_login.status == 200
+
+    - name: Extract API token
+      ansible.builtin.set_fact:
+        technitium_token: "{{ (technitium_login.content | from_json).token }}"
+
+  handlers:
+    - name: restart technitium
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/technitium"
+        state: restarted
+
+##############################################################################
+# Phase 3.1 — Technitium primary zone config via API
+##############################################################################
+- name: "Phase 3.1 — Configure Technitium PRIMARY zones & records"
+  hosts: dns_primary
+  become: true
+  tags: [technitium, dns-config]
+  tasks:
+    # --- Zone forward evlab.ch ---
+    - name: Create primary zone evlab.ch
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone={{ domain }}&type=Primary"
+        method: GET
+      register: zone_create
+      failed_when: false
+      changed_when: "'was created' in (zone_create.content | default(''))"
+
+    - name: Configure zone transfer for evlab.ch
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/options/set"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "{{ domain }}"
+          zoneTransfer: UseSpecifiedNetworkACL
+          zoneTransferNetworkACL: "{{ dns_secondary_ip }}"
+          notify: SpecifiedNameServers
+          notifyNameServers: "{{ dns_secondary_ip }}"
+
+    # --- Zone reverse ---
+    - name: Create primary reverse zone
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone=86.16.172.in-addr.arpa&type=Primary"
+        method: GET
+      register: rzone_create
+      failed_when: false
+      changed_when: "'was created' in (rzone_create.content | default(''))"
+
+    - name: Configure zone transfer for reverse zone
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/options/set"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "86.16.172.in-addr.arpa"
+          zoneTransfer: UseSpecifiedNetworkACL
+          zoneTransferNetworkACL: "{{ dns_secondary_ip }}"
+          notify: SpecifiedNameServers
+          notifyNameServers: "{{ dns_secondary_ip }}"
+
+    # --- A records ---
+    - name: Add A records
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/records/add"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "{{ domain }}"
+          domain: "{{ item.name }}"
+          type: A
+          ipAddress: "{{ item.ip }}"
+          ttl: "3600"
+          overwrite: "true"
+      loop: "{{ dns_a_records }}"
+      loop_control:
+        label: "{{ item.name }} → {{ item.ip }}"
+
+    # --- PTR records ---
+    - name: Add PTR records
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/records/add"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "86.16.172.in-addr.arpa"
+          domain: "{{ item.ip.split('.')[-1] }}.86.16.172.in-addr.arpa"
+          type: PTR
+          ptrName: "{{ item.name }}"
+          ttl: "3600"
+          overwrite: "true"
+      loop: "{{ dns_ptr_records }}"
+      loop_control:
+        label: "{{ item.ip }} → {{ item.name }}"
+
+##############################################################################
+# Phase 4 — Technitium secondary zone config via API
+##############################################################################
+- name: "Phase 4 — Configure Technitium SECONDARY zones"
+  hosts: dns_secondary
+  become: true
+  tags: [technitium, dns-config]
+  tasks:
+    - name: Create secondary zone evlab.ch
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone={{ domain }}&type=Secondary&primaryNameServerAddresses={{ dns_primary_ip }}"
+        method: GET
+      register: sec_zone
+      failed_when: false
+
+    - name: Create secondary reverse zone
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone=86.16.172.in-addr.arpa&type=Secondary&primaryNameServerAddresses={{ dns_primary_ip }}"
+        method: GET
+      register: sec_rzone
+      failed_when: false
+
+##############################################################################
+# Phase 5 — Blocklists (tous les noeuds)
+##############################################################################
+- name: "Phase 5 — Configure blocklists"
+  hosts: dns_servers
+  become: true
+  tags: [technitium, blocklists]
+  tasks:
+    - name: Enable blocking and set blocklist URLs
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/settings/set"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          enableBlocking: "true"
+          blockListUrls: "{{ technitium_blocklists | join('\n') }}"
+          blockListUpdateIntervalHours: "24"
+      register: blocking_result
+      failed_when: false
+
+##############################################################################
+# Phase 6 — Traefik (les 2 noeuds pour HA)
+##############################################################################
+- name: "Phase 6 — Deploy Traefik"
+  hosts: dns_servers
+  become: true
+  tags: [traefik]
+  tasks:
+    - name: Create Traefik directories (secondary)
+      when: inventory_hostname in groups['dns_secondary']
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - "{{ docker_base_dir }}/traefik/config/dynamic"
+        - "{{ docker_base_dir }}/traefik/certs"
+
+    - name: Deploy Traefik docker-compose.yml
+      ansible.builtin.template:
+        src: templates/traefik-compose.yml.j2
+        dest: "{{ docker_base_dir }}/traefik/docker-compose.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    - name: Deploy Traefik static config
+      ansible.builtin.template:
+        src: templates/traefik-static.yml.j2
+        dest: "{{ docker_base_dir }}/traefik/config/traefik.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+      notify: restart traefik
+
+    - name: Deploy Traefik dynamic services
+      ansible.builtin.template:
+        src: templates/traefik-services.yml.j2
+        dest: "{{ docker_base_dir }}/traefik/config/dynamic/services.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    - name: Start Traefik
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/traefik"
+        state: present
+
+  handlers:
+    - name: restart traefik
+      community.docker.docker_compose_v2:
+        project_src: "{{ docker_base_dir }}/traefik"
+        state: restarted
+
+##############################################################################
+# Phase 6.05 — Keepalived (Traefik HA avec VIP flottante)
+##############################################################################
+- name: "Phase 6.05 — Deploy keepalived for Traefik HA"
+  hosts: dns_servers
+  become: true
+  tags: [traefik, keepalived]
+  tasks:
+    - name: Install keepalived
+      ansible.builtin.apt:
+        name: keepalived
+        state: present
+
+    - name: Create keepalived scripts directory
+      ansible.builtin.file:
+        path: /etc/keepalived/scripts
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy Traefik health check script
+      ansible.builtin.template:
+        src: templates/check-traefik.sh.j2
+        dest: /etc/keepalived/scripts/check_traefik.sh
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy keepalived config
+      ansible.builtin.template:
+        src: templates/keepalived.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart keepalived
+
+    - name: Enable and start keepalived
+      ansible.builtin.systemd:
+        name: keepalived
+        enabled: true
+        state: started
+
+    - name: Deploy ACME sync script (primary only)
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.template:
+        src: templates/sync-acme.sh.j2
+        dest: "{{ docker_base_dir }}/traefik/sync-acme.sh"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: ACME sync cron every hour (primary only)
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.cron:
+        name: "Sync acme.json to infra2"
+        minute: "15"
+        job: "{{ docker_base_dir }}/traefik/sync-acme.sh"
+
+  handlers:
+    - name: restart keepalived
+      ansible.builtin.systemd:
+        name: keepalived
+        state: restarted
+
+##############################################################################
+# Phase 6.1 — Verrouiller port 5380 (HTTPS only via Traefik)
+##############################################################################
+- name: "Phase 6.1 — Restrict Technitium Web UI to localhost"
+  hosts: dns_servers
+  become: true
+  tags: [traefik, firewall]
+  tasks:
+    - name: Install iptables-persistent
+      ansible.builtin.apt:
+        name: iptables-persistent
+        state: present
+
+    - name: Allow localhost access to 5380
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "5380"
+        source: 127.0.0.1
+        jump: ACCEPT
+        comment: "Technitium Web UI - localhost only"
+
+    - name: Allow infra1 to reach infra2 port 5380 (for dns2.evlab.ch via Traefik)
+      when: inventory_hostname in groups['dns_secondary']
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "5380"
+        source: "{{ dns_primary_ip }}"
+        jump: ACCEPT
+        comment: "Technitium Web UI - Traefik proxy from infra1"
+
+    - name: Block external access to 5380
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "5380"
+        jump: DROP
+        comment: "Block direct Technitium Web UI access"
+
+    - name: Allow localhost access to 8080 (Traefik API for keepalived)
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "8080"
+        source: 127.0.0.1
+        jump: ACCEPT
+        comment: "Traefik API - keepalived health check"
+
+    - name: Block external access to 8080
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "8080"
+        jump: DROP
+        comment: "Block direct Traefik API access"
+
+    - name: Allow VRRP traffic between infra nodes
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: "112"
+        source: "{{ dns_primary_ip if inventory_hostname in groups['dns_secondary'] else dns_secondary_ip }}"
+        jump: ACCEPT
+        comment: "VRRP keepalived"
+
+    - name: Save iptables rules
+      ansible.builtin.command: netfilter-persistent save
+      changed_when: true
+
+##############################################################################
+# Phase 8 — DHCP scopes via API (primary + secondary)
+##############################################################################
+- name: "Phase 8 — Configure DHCP scopes"
+  hosts: dns_servers
+  become: true
+  tags: [technitium, dhcp]
+  tasks:
+    - name: Configure DHCP scope
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/set"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "lan-{{ inventory_hostname }}"
+          startingAddress: "{{ dhcp_range_start }}"
+          endingAddress: "{{ dhcp_range_end }}"
+          subnetMask: "255.255.255.0"
+          routerAddress: "{{ gateway }}"
+          dnsServers: "{{ dns_primary_ip }},{{ dns_secondary_ip }},1.1.1.1"
+          domainName: "{{ domain }}"
+          leaseTimeDays: "1"
+          dnsSuffix: "{{ domain }}"
+      register: dhcp_result
+      failed_when: false
+
+    - name: Enable DHCP scope
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/enable?token={{ technitium_token }}&name=lan-{{ inventory_hostname }}"
+        method: GET
+      failed_when: false
+
+    # Note: DHCP reservations are added only on the primary
+    - name: Add DHCP reservations (primary only)
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/addReservedLease"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "lan-{{ inventory_hostname }}"
+          hardwareAddress: "{{ item.mac }}"
+          ipAddress: "{{ item.ip }}"
+          hostName: "{{ item.name | regex_replace(' ', '-') | lower }}"
+      loop: "{{ dhcp_reservations }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
+      failed_when: false
+
+##############################################################################
+# Phase 9 — WireGuard natif (infra2 only)
+##############################################################################
+- name: "Phase 9 — Deploy WireGuard (native, on infra2)"
+  hosts: dns_secondary
+  become: true
+  tags: [wireguard]
+  tasks:
+    - name: Install WireGuard + QR tools
+      ansible.builtin.apt:
+        name:
+          - wireguard
+          - wireguard-tools
+          - qrencode
+        state: present
+
+    - name: Enable IP forwarding
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_file: /etc/sysctl.d/99-wireguard.conf
+        reload: true
+
+    - name: Deploy wg0.conf
+      ansible.builtin.template:
+        src: templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        owner: root
+        group: root
+        mode: "0600"
+      notify: restart wireguard
+
+    - name: Enable and start WireGuard
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        enabled: true
+        state: started
+
+    - name: Create client configs directory
+      ansible.builtin.file:
+        path: /etc/wireguard/clients
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Generate client configs
+      ansible.builtin.template:
+        src: templates/wg-client.conf.j2
+        dest: "/etc/wireguard/clients/{{ peer.name }}.conf"
+        owner: root
+        group: root
+        mode: "0600"
+      loop: "{{ wireguard_peers_list }}"
+      loop_control:
+        loop_var: peer
+        label: "{{ peer.name }}"
+
+    - name: Generate QR codes for mobile clients
+      ansible.builtin.shell: |
+        qrencode -t png -o /etc/wireguard/clients/{{ peer.name }}.png < /etc/wireguard/clients/{{ peer.name }}.conf
+      loop: "{{ wireguard_peers_list }}"
+      loop_control:
+        loop_var: peer
+        label: "{{ peer.name }}"
+      changed_when: true
+
+    - name: Display client config paths
+      ansible.builtin.debug:
+        msg: >
+          Client {{ peer.name }}:
+          config = /etc/wireguard/clients/{{ peer.name }}.conf
+          qr     = /etc/wireguard/clients/{{ peer.name }}.png
+          Recuperer avec: scp infra2:/etc/wireguard/clients/{{ peer.name }}.* .
+      loop: "{{ wireguard_peers_list }}"
+      loop_control:
+        loop_var: peer
+        label: "{{ peer.name }}"
+
+    - name: Allow WireGuard port in UFW (if active)
+      community.general.ufw:
+        rule: allow
+        port: "{{ wireguard_port }}"
+        proto: udp
+        comment: WireGuard VPN
+      failed_when: false
+
+  handlers:
+    - name: restart wireguard
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: restarted
+
+##############################################################################
+# Phase 2 + 11 — DDNS + Backups (cron)
+##############################################################################
+- name: "Phase 2+11 — DDNS & Backup crons"
+  hosts: dns_servers
+  become: true
+  tags: [cron]
+  tasks:
+    - name: Deploy DDNS script (primary only)
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.template:
+        src: templates/update-ddns.sh.j2
+        dest: "{{ docker_base_dir }}/ddns/update-ddns.sh"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: DDNS cron every 5 min (primary only)
+      when: inventory_hostname in groups['dns_primary']
+      ansible.builtin.cron:
+        name: "DDNS update vpn.evlab.ch"
+        minute: "*/5"
+        job: "{{ docker_base_dir }}/ddns/update-ddns.sh >> /var/log/ddns.log 2>&1"
+
+    - name: Deploy backup script
+      ansible.builtin.template:
+        src: templates/backup-infra.sh.j2
+        dest: "{{ docker_base_dir }}/ddns/backup-infra.sh"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Backup cron nightly at 02:00
+      ansible.builtin.cron:
+        name: "Nightly infra backup"
+        hour: "2"
+        minute: "0"
+        job: "{{ docker_base_dir }}/ddns/backup-infra.sh >> /var/log/backup.log 2>&1"
+
+##############################################################################
+# Phase 10 — Monitoring exporters (Prometheus-ready)
+##############################################################################
+- name: "Phase 10 — Node Exporter (all nodes)"
+  hosts: dns_servers
+  become: true
+  tags: [monitoring, node_exporter]
+  tasks:
+    - name: Create node_exporter system user
+      ansible.builtin.user:
+        name: node_exporter
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+
+    - name: Download node_exporter
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+        dest: /tmp/node_exporter.tar.gz
+        mode: "0644"
+
+    - name: Extract node_exporter
+      ansible.builtin.unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install node_exporter binary
+      ansible.builtin.copy:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+        dest: /usr/local/bin/node_exporter
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+      notify: restart node_exporter
+
+    - name: Deploy node_exporter systemd unit
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/node_exporter.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter \
+            --web.listen-address=:{{ node_exporter_port }} \
+            --collector.systemd \
+            --collector.processes
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: restart node_exporter
+
+    - name: Enable and start node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Clean up download
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/node_exporter.tar.gz
+        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+
+  handlers:
+    - name: restart node_exporter
+      ansible.builtin.systemd:
+        name: node_exporter
+        state: restarted
+        daemon_reload: true
+
+- name: "Phase 10 — cAdvisor (Docker metrics)"
+  hosts: dns_servers
+  become: true
+  tags: [monitoring, cadvisor]
+  tasks:
+    - name: Deploy cAdvisor container
+      community.docker.docker_container:
+        name: cadvisor
+        image: gcr.io/cadvisor/cadvisor:latest
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ cadvisor_port }}:8080"
+        volumes:
+          - /:/rootfs:ro
+          - /var/run:/var/run:ro
+          - /sys:/sys:ro
+          - /var/lib/docker/:/var/lib/docker:ro
+          - /dev/disk/:/dev/disk:ro
+        devices:
+          - /dev/kmsg
+        privileged: true
+
+- name: "Phase 10 — WireGuard Exporter (infra2 only)"
+  hosts: dns_secondary
+  become: true
+  tags: [monitoring, wireguard_exporter]
+  tasks:
+    - name: Deploy prometheus_wireguard_exporter container
+      community.docker.docker_container:
+        name: wireguard-exporter
+        image: mindflavor/prometheus-wireguard-exporter:latest
+        state: started
+        restart_policy: unless-stopped
+        network_mode: host
+        capabilities:
+          - NET_ADMIN
+        volumes:
+          - /etc/wireguard:/etc/wireguard:ro
+        env:
+          PROMETHEUS_WIREGUARD_EXPORTER_PORT: "{{ wireguard_exporter_port | string }}"
+
+- name: "Phase 10 — Traefik metrics endpoint"
+  hosts: dns_servers
+  become: true
+  tags: [monitoring, traefik_metrics]
+  tasks:
+    - name: Ensure Traefik metrics are enabled in static config
+      ansible.builtin.blockinfile:
+        path: "{{ docker_base_dir }}/traefik/config/traefik.yml"
+        marker: "# {mark} ANSIBLE MANAGED - PROMETHEUS METRICS"
+        block: |
+          metrics:
+            prometheus:
+              addEntryPointsLabels: true
+              addRoutersLabels: true
+              addServicesLabels: true
+              entryPoint: websecure
+      notify: restart traefik
+
+  handlers:
+    - name: restart traefik
+      community.docker.docker_container:
+        name: traefik
+        state: started
+        restart: true
+
+##############################################################################
+# Verification
+##############################################################################
+- name: "Verification — Smoke tests"
+  hosts: dns_primary
+  become: false
+  tags: [verify]
+  tasks:
+    - name: Test DNS resolution (primary)
+      ansible.builtin.command: "dig @{{ dns_primary_ip }} {{ item }} +short"
+      loop:
+        - "homeassistant.{{ domain }}"
+        - "nas.{{ domain }}"
+        - "infra1.{{ domain }}"
+      register: dig_results
+      changed_when: false
+
+    - name: Display DNS results
+      ansible.builtin.debug:
+        msg: "{{ item.item }} → {{ item.stdout }}"
+      loop: "{{ dig_results.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Test DNS resolution (secondary)
+      ansible.builtin.command: "dig @{{ dns_secondary_ip }} homeassistant.{{ domain }} +short"
+      register: dig_secondary
+      changed_when: false
+
+    - name: Display secondary result
+      ansible.builtin.debug:
+        msg: "secondary homeassistant.{{ domain }} → {{ dig_secondary.stdout }}"
+
+    - name: Test reverse DNS
+      ansible.builtin.command: "dig @{{ dns_primary_ip }} -x {{ nas_ip }} +short"
+      register: dig_ptr
+      changed_when: false
+
+    - name: Display PTR result
+      ansible.builtin.debug:
+        msg: "{{ nas_ip }} → {{ dig_ptr.stdout }}"
+
+    - name: Test ad blocking
+      ansible.builtin.command: "dig @{{ dns_primary_ip }} doubleclick.net +short"
+      register: dig_block
+      changed_when: false
+
+    - name: Display blocking result
+      ansible.builtin.debug:
+        msg: "doubleclick.net → {{ dig_block.stdout }} (should be 0.0.0.0)"

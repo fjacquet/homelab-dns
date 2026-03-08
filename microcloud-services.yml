@@ -1,0 +1,318 @@
+---
+##############################################################################
+# MicroCloud — Deploy services (run AFTER microcloud init)
+##############################################################################
+
+##############################################################################
+# Phase 1 — Prometheus + Grafana (monitoring stack)
+##############################################################################
+- name: "MC Services — Prometheus + Grafana"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_prometheus, mc_grafana]
+  vars:
+    prometheus_dir: /opt/monitoring/prometheus
+    grafana_dir: /opt/monitoring/grafana
+  tasks:
+    - name: Create monitoring directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /opt/monitoring
+        - "{{ prometheus_dir }}/config"
+        - "{{ prometheus_dir }}/data"
+        - "{{ grafana_dir }}/data"
+        - "{{ grafana_dir }}/provisioning/datasources"
+        - "{{ grafana_dir }}/provisioning/dashboards"
+        - "{{ grafana_dir }}/dashboards"
+
+    - name: Deploy Prometheus config
+      ansible.builtin.copy:
+        dest: "{{ prometheus_dir }}/config/prometheus.yml"
+        mode: "0644"
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+
+          scrape_configs:
+            # --- Infrastructure nodes (infra1, infra2) ---
+            - job_name: node-infra
+              static_configs:
+                - targets:
+                    - {{ dns_primary_ip }}:{{ node_exporter_port }}
+                    - {{ dns_secondary_ip }}:{{ node_exporter_port }}
+                  labels:
+                    role: infra
+
+            # --- MicroCloud nodes ---
+            - job_name: node-microcloud
+              static_configs:
+                - targets:
+                    - 172.16.86.13:{{ node_exporter_port }}
+                    - 172.16.86.14:{{ node_exporter_port }}
+                    - 172.16.86.15:{{ node_exporter_port }}
+                  labels:
+                    role: microcloud
+
+            # --- Docker containers (cAdvisor) ---
+            - job_name: cadvisor
+              static_configs:
+                - targets:
+                    - {{ dns_primary_ip }}:{{ cadvisor_port }}
+                    - {{ dns_secondary_ip }}:{{ cadvisor_port }}
+
+            # --- Traefik ---
+            - job_name: traefik
+              scheme: https
+              tls_config:
+                insecure_skip_verify: true
+              static_configs:
+                - targets:
+                    - {{ traefik_vip }}:443
+
+            # --- WireGuard (infra2) ---
+            - job_name: wireguard
+              static_configs:
+                - targets:
+                    - {{ dns_secondary_ip }}:{{ wireguard_exporter_port }}
+
+            # --- Prometheus self ---
+            - job_name: prometheus
+              static_configs:
+                - targets:
+                    - localhost:9090
+      notify: restart prometheus
+
+    - name: Deploy Grafana datasource provisioning
+      ansible.builtin.copy:
+        dest: "{{ grafana_dir }}/provisioning/datasources/prometheus.yml"
+        mode: "0644"
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              access: proxy
+              url: http://prometheus:9090
+              isDefault: true
+              editable: false
+
+    - name: Deploy Grafana dashboard provisioning
+      ansible.builtin.copy:
+        dest: "{{ grafana_dir }}/provisioning/dashboards/default.yml"
+        mode: "0644"
+        content: |
+          apiVersion: 1
+          providers:
+            - name: default
+              orgId: 1
+              folder: ''
+              type: file
+              disableDeletion: false
+              updateIntervalSeconds: 30
+              options:
+                path: /var/lib/grafana/dashboards
+                foldersFromFilesStructure: false
+
+    - name: Set Grafana data directory ownership
+      ansible.builtin.file:
+        path: "{{ grafana_dir }}/data"
+        owner: "472"
+        group: "472"
+        recurse: true
+
+    - name: Deploy docker-compose for monitoring stack
+      ansible.builtin.copy:
+        dest: /opt/monitoring/docker-compose.yml
+        mode: "0644"
+        content: |
+          services:
+            prometheus:
+              container_name: prometheus
+              image: prom/prometheus:latest
+              restart: unless-stopped
+              user: root
+              command:
+                - --config.file=/etc/prometheus/prometheus.yml
+                - --storage.tsdb.path=/prometheus
+                - --storage.tsdb.retention.time=30d
+                - --web.enable-lifecycle
+              ports:
+                - "9090:9090"
+              volumes:
+                - {{ prometheus_dir }}/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+                - {{ prometheus_dir }}/data:/prometheus
+
+            grafana:
+              container_name: grafana
+              image: grafana/grafana:latest
+              restart: unless-stopped
+              ports:
+                - "3000:3000"
+              environment:
+                - GF_SECURITY_ADMIN_USER=admin
+                - GF_SECURITY_ADMIN_PASSWORD={{ vault_grafana_password | default('changeme') }}
+                - GF_USERS_ALLOW_SIGN_UP=false
+                - GF_SERVER_ROOT_URL=https://grafana.{{ domain }}
+              volumes:
+                - {{ grafana_dir }}/data:/var/lib/grafana
+                - {{ grafana_dir }}/provisioning:/etc/grafana/provisioning
+                - {{ grafana_dir }}/dashboards:/var/lib/grafana/dashboards
+              depends_on:
+                - prometheus
+      notify: restart monitoring stack
+
+    - name: Start monitoring stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/monitoring
+        state: present
+
+    - name: Display access info
+      ansible.builtin.debug:
+        msg: |
+          Monitoring stack deployed on {{ mc_hostname }} ({{ ansible_host }}).
+
+          Prometheus: http://{{ ansible_host }}:9090
+          Grafana:    http://{{ ansible_host }}:3000 (admin / vault_grafana_password)
+
+          Recommended Grafana dashboards to import:
+            - Node Exporter Full: ID 1860
+            - Docker / cAdvisor:  ID 193
+            - Traefik:            ID 17346
+
+          To expose via Traefik, add DNS records and Traefik routes:
+            grafana.evlab.ch    → http://{{ ansible_host }}:3000
+            prometheus.evlab.ch → http://{{ ansible_host }}:9090
+
+  handlers:
+    - name: restart prometheus
+      community.docker.docker_container:
+        name: prometheus
+        state: started
+        restart: true
+
+    - name: restart monitoring stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/monitoring
+        state: present
+        restarted: true
+
+##############################################################################
+# Phase 2 — Checkmk (infrastructure monitoring)
+##############################################################################
+- name: "MC Services — Checkmk server"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_checkmk]
+  vars:
+    checkmk_dir: /opt/checkmk
+  tasks:
+    - name: Create Checkmk directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ checkmk_dir }}"
+        - "{{ checkmk_dir }}/data"
+
+    - name: Deploy Checkmk container
+      community.docker.docker_container:
+        name: checkmk
+        image: checkmk/check-mk-raw:latest
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "8090:5000"
+        volumes:
+          - "{{ checkmk_dir }}/data:/omd/sites"
+        tmpfs:
+          - /opt/omd/sites/cmk/tmp:uid=1000,gid=1000
+        env:
+          CMK_SITE_ID: "cmk"
+          CMK_PASSWORD: "{{ vault_checkmk_password | default('changeme') }}"
+
+    - name: Wait for Checkmk to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:8090/cmk/check_mk/login.py"
+        status_code: 200
+      register: cmk_ready
+      retries: 30
+      delay: 5
+      until: cmk_ready.status == 200
+
+    - name: Display Checkmk access info
+      ansible.builtin.debug:
+        msg: |
+          Checkmk deployed on {{ mc_hostname }} ({{ ansible_host }}).
+
+          URL:      http://{{ ansible_host }}:8090/cmk/
+          User:     cmkadmin
+          Password: vault_checkmk_password (or 'changeme')
+
+          To expose via Traefik: checkmk.evlab.ch → http://{{ ansible_host }}:8090
+
+- name: "MC Services — Checkmk agents on all nodes"
+  hosts: dns_servers:microcloud
+  become: true
+  tags: [mc_checkmk_agent]
+  tasks:
+    - name: Download Checkmk agent from server
+      ansible.builtin.get_url:
+        url: "http://172.16.86.13:8090/cmk/check_mk/agents/check-mk-agent_2.3.0p1-1_all.deb"
+        dest: /tmp/check-mk-agent.deb
+        mode: "0644"
+      failed_when: false
+      register: agent_download
+
+    - name: Install Checkmk agent (if downloaded)
+      ansible.builtin.apt:
+        deb: /tmp/check-mk-agent.deb
+      when: agent_download is succeeded
+
+    - name: Fallback — install agent via apt
+      when: agent_download is failed
+      block:
+        - name: Install xinetd
+          ansible.builtin.apt:
+            name: xinetd
+            state: present
+
+        - name: Download agent script
+          ansible.builtin.get_url:
+            url: "http://172.16.86.13:8090/cmk/check_mk/agents/check_mk_agent.linux"
+            dest: /usr/local/bin/check_mk_agent
+            mode: "0755"
+
+        - name: Deploy xinetd config for check_mk
+          ansible.builtin.copy:
+            dest: /etc/xinetd.d/check_mk
+            mode: "0644"
+            content: |
+              service check_mk
+              {
+                  type           = UNLISTED
+                  port           = 6556
+                  socket_type    = stream
+                  protocol       = tcp
+                  wait           = no
+                  user           = root
+                  server         = /usr/local/bin/check_mk_agent
+                  only_from      = 172.16.86.13
+                  disable        = no
+              }
+          notify: restart xinetd
+
+    - name: Clean up
+      ansible.builtin.file:
+        path: /tmp/check-mk-agent.deb
+        state: absent
+
+  handlers:
+    - name: restart xinetd
+      ansible.builtin.systemd:
+        name: xinetd
+        state: restarted

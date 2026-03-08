@@ -1,0 +1,14 @@
+#!/bin/bash
+# Health check for keepalived — vérifie que Traefik répond
+
+# Traefik container running?
+if ! docker inspect traefik --format='{{ '{{' }}.State.Running{{ '}}' }}' 2>/dev/null | grep -q true; then
+    exit 1
+fi
+
+# Traefik responds on HTTPS?
+if ! curl -sf --max-time 3 -o /dev/null http://localhost:8080/api/rawdata 2>/dev/null; then
+    exit 1
+fi
+
+exit 0

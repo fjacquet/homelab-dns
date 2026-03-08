@@ -1,0 +1,26 @@
+services:
+  wireguard:
+    image: {{ wireguard_image }}
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Zurich
+      - SERVERURL={{ wireguard_server_url }}
+      - SERVERPORT={{ wireguard_port }}
+      - PEERS={{ wireguard_peers }}
+      - PEERDNS={{ dns_primary_ip }}
+      - INTERNAL_SUBNET={{ wireguard_internal_subnet }}
+      - ALLOWEDIPS=0.0.0.0/0
+    volumes:
+      - {{ docker_base_dir }}/wireguard/config:/config
+    ports:
+      - "{{ wireguard_port }}:{{ wireguard_port }}/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"

@@ -1,0 +1,36 @@
+global_defs {
+    router_id {{ infra_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_script check_traefik {
+    script "/etc/keepalived/scripts/check_traefik.sh"
+    interval 5
+    weight -50
+    fall 2
+    rise 2
+}
+
+vrrp_instance TRAEFIK_VIP {
+    state {{ 'MASTER' if inventory_hostname in groups['dns_primary'] else 'BACKUP' }}
+    interface {{ wireguard_interface }}
+    virtual_router_id 51
+    priority {{ '200' if inventory_hostname in groups['dns_primary'] else '100' }}
+    advert_int 1
+
+    authentication {
+        auth_type PASS
+        auth_pass {{ keepalived_auth_pass }}
+    }
+
+    virtual_ipaddress {
+        {{ traefik_vip }}/24 dev {{ wireguard_interface }} label {{ wireguard_interface }}:vip
+    }
+
+    track_script {
+        check_traefik
+    }
+
+    preempt_delay 300
+}

@@ -1,0 +1,42 @@
+---
+all:
+  vars:
+    ansible_user: fjacquet
+    ansible_become: true
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    dns_primary:
+      hosts:
+        opt1:
+          ansible_host: 172.16.86.11
+          infra_hostname: infra1
+          infra_ip: 172.16.86.11
+          dhcp_range_start: 172.16.86.100
+          dhcp_range_end: 172.16.86.179
+
+    dns_secondary:
+      hosts:
+        opt2:
+          ansible_host: 172.16.86.12
+          infra_hostname: infra2
+          infra_ip: 172.16.86.12
+          dhcp_range_start: 172.16.86.180
+          dhcp_range_end: 172.16.86.200
+
+    dns_servers:
+      children:
+        dns_primary:
+        dns_secondary:
+
+    microcloud:
+      hosts:
+        opt3:
+          ansible_host: 172.16.86.13
+          mc_hostname: mc-node-01
+        opt4:
+          ansible_host: 172.16.86.14
+          mc_hostname: mc-node-02
+        opt5:
+          ansible_host: 172.16.86.15
+          mc_hostname: mc-node-03

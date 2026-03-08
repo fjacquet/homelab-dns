@@ -1,0 +1,18 @@
+http:
+  routers:
+{% for svc in traefik_services %}
+    {{ svc.name }}:
+      rule: "Host(`{{ svc.host }}`)"
+      entryPoints: [websecure]
+      service: {{ svc.name }}
+      tls:
+        certResolver: infomaniak
+{% endfor %}
+
+  services:
+{% for svc in traefik_services %}
+    {{ svc.name }}:
+      loadBalancer:
+        servers:
+          - url: "{{ svc.url }}"
+{% endfor %}
