@@ -378,11 +378,26 @@
         body:
           token: "{{ technitium_token }}"
           enableBlocking: "true"
-          blockListUrls: "{{ technitium_blocklists | join('\n') }}"
+          blockListUrls: "{{ technitium_blocklists | join(',') }}"
           blockListUpdateIntervalHours: "24"
       register: blocking_result
       failed_when: false
       no_log: true
+
+    - name: Force update blocklists
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/settings/forceUpdateBlockLists"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+      register: blocklist_update
+      failed_when: false
+      no_log: true
+
+    - name: Wait for blocklists to download
+      ansible.builtin.pause:
+        seconds: 15
 
 ##############################################################################
 # Phase 6 — Traefik (les 2 noeuds pour HA)
