@@ -16,7 +16,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Install Ansible collections
-        run: uvx --with ansible ansible-galaxy collection install -r requirements.yml
+        run: uvx --from ansible ansible-galaxy collection install -r requirements.yml
 
       - name: Run ansible-lint
         run: uvx --with ansible-lint ansible-lint
@@ -41,7 +41,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Install Ansible collections
-        run: uvx --with ansible ansible-galaxy collection install -r requirements.yml
+        run: uvx --from ansible ansible-galaxy collection install -r requirements.yml
 
       - name: Run molecule tests
         run: uvx --with molecule --with molecule-plugins[docker] --with ansible molecule test --all
