@@ -26,7 +26,8 @@ certificatesResolvers:
       caServer: https://acme-v02.api.letsencrypt.org/directory
       dnsChallenge:
         provider: infomaniak
-        delayBeforeCheck: 60
+        propagation:
+          delayBeforeChecks: 60
         resolvers:
           - "nsany1.infomaniak.com:53"
           - "nsany2.infomaniak.com:53"

@@ -5,8 +5,7 @@ http:
       rule: "Host(`{{ svc.host }}`)"
       entryPoints: [websecure]
       service: {{ svc.name }}
-      tls:
-        certResolver: infomaniak
+      tls: {}
 {% endfor %}
 
   services:
@@ -16,3 +15,13 @@ http:
         servers:
           - url: "{{ svc.url }}"
 {% endfor %}
+
+tls:
+  stores:
+    default:
+      defaultGeneratedCert:
+        resolver: infomaniak
+        domain:
+          main: "{{ domain }}"
+          sans:
+            - "*.{{ domain }}"
