@@ -1,11 +1,11 @@
 ---
-##############################################################################
+# #############################################################################
 # MicroCloud — Prepare nodes (run BEFORE microcloud init)
-##############################################################################
+# #############################################################################
 
-##############################################################################
+# #############################################################################
 # Phase 1 — Base setup (hostname, packages, DNS)
-##############################################################################
+# #############################################################################
 - name: "MC Phase 1 — Base setup"
   hosts: microcloud
   become: true
@@ -26,7 +26,7 @@
         path: /etc/systemd/resolved.conf
         regexp: "^#?DNSStubListener="
         line: "DNSStubListener=no"
-      notify: restart resolved
+      notify: Restart resolved
 
     - name: Create resolved.conf.d directory
       ansible.builtin.file:
@@ -42,7 +42,7 @@
           [Resolve]
           DNS={{ dns_primary_ip }} {{ dns_secondary_ip }}
           Domains={{ domain }}
-      notify: restart resolved
+      notify: Restart resolved
 
     - name: Update apt cache
       ansible.builtin.apt:
@@ -69,13 +69,13 @@
         owner: root
         group: root
         mode: "0600"
-      notify: apply netplan
+      notify: Apply netplan
 
   handlers:
-    - name: apply netplan
+    - name: Apply netplan
       ansible.builtin.command: netplan apply
       changed_when: true
-    - name: restart resolved
+    - name: Restart resolved
       ansible.builtin.systemd:
         name: systemd-resolved
         state: restarted
@@ -184,7 +184,7 @@
         group: root
         mode: "0755"
         remote_src: true
-      notify: restart node_exporter
+      notify: Restart node_exporter
 
     - name: Deploy node_exporter systemd unit
       ansible.builtin.copy:
@@ -209,7 +209,7 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: restart node_exporter
+      notify: Restart node_exporter
 
     - name: Enable and start node_exporter
       ansible.builtin.systemd:
@@ -227,7 +227,7 @@
         - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
 
   handlers:
-    - name: restart node_exporter
+    - name: Restart node_exporter
       ansible.builtin.systemd:
         name: node_exporter
         state: restarted
@@ -261,4 +261,4 @@
              lxc storage create datastore dir source=/srv/datastore
              lxc storage create isofiles dir source=/srv/isofiles
           5. Deploy monitoring: ansible-playbook -i inventory.yml microcloud-services.yml
-      run_once: true
+      run_once: true # noqa: run-once[task]

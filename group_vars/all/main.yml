@@ -64,11 +64,7 @@ dhcp_reservations:
   - { mac: "64:00:6A:7D:7E:02", ip: "172.16.86.12", name: "opt2 infra2" }
   - { mac: "64:00:6A:7D:89:4E", ip: "172.16.86.13", name: "opt3 mc-node-01" }
   - { mac: "64:00:6A:79:7B:36", ip: "172.16.86.14", name: "opt4 mc-node-02" }
-  - {
-      mac: "64:00:6A:7D:86:F6",
-      ip: "172.16.86.15",
-      name: "ubuntu-server mc-node-03",
-    }
+  - { mac: "64:00:6A:7D:86:F6", ip: "172.16.86.15", name: "ubuntu-server mc-node-03" }
   - { mac: "04:70:56:68:C5:9C", ip: "172.16.86.25", name: "TV-Box" }
   - { mac: "68:B9:C2:12:71:B9", ip: "172.16.86.32", name: "Unknown 68B9" }
   - { mac: "B0:4A:39:6F:B3:E9", ip: "172.16.86.42", name: "Roborock vacuum" }
@@ -92,11 +88,7 @@ infomaniak_api_token: "{{ vault_infomaniak_token }}"
 traefik_acme_email: fred@ljf.ch
 
 traefik_services:
-  - {
-      name: homeassistant,
-      host: "homeassistant.evlab.ch",
-      url: "http://172.16.86.10:8123",
-    }
+  - { name: homeassistant, host: "homeassistant.evlab.ch", url: "http://172.16.86.10:8123" }
   - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.10:5678" }
   - { name: stash, host: "stash.evlab.ch", url: "http://172.16.86.10:9999" }
   - { name: pgadmin, host: "pgadmin.evlab.ch", url: "http://172.16.86.10:8888" }
@@ -120,24 +112,9 @@ wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
 wireguard_server_public_key: "{{ vault_wg_server_public_key }}"
 
 wireguard_peers_list:
-  - {
-      name: iphone,
-      ip: "10.13.13.2",
-      public_key: "{{ vault_wg_iphone_pubkey }}",
-      private_key: "{{ vault_wg_iphone_privkey }}",
-    }
-  - {
-      name: macbook,
-      ip: "10.13.13.3",
-      public_key: "{{ vault_wg_macbook_pubkey }}",
-      private_key: "{{ vault_wg_macbook_privkey }}",
-    }
-  - {
-      name: ipad,
-      ip: "10.13.13.4",
-      public_key: "{{ vault_wg_ipad_pubkey }}",
-      private_key: "{{ vault_wg_ipad_privkey }}",
-    }
+  - { name: iphone, ip: "10.13.13.2", public_key: "{{ vault_wg_iphone_pubkey }}", private_key: "{{ vault_wg_iphone_privkey }}" }
+  - { name: macbook, ip: "10.13.13.3", public_key: "{{ vault_wg_macbook_pubkey }}", private_key: "{{ vault_wg_macbook_privkey }}" }
+  - { name: ipad, ip: "10.13.13.4", public_key: "{{ vault_wg_ipad_pubkey }}", private_key: "{{ vault_wg_ipad_privkey }}" }
 
 # === DDNS Infomaniak ===
 infomaniak_domain_id: "{{ vault_infomaniak_domain_id }}"

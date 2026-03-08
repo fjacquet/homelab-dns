@@ -11,7 +11,7 @@ dhcp_reservations:
   - { mac: "AA:BB:CC:DD:EE:FF", ip: "172.16.86.XX", name: "new-device" }
 ```
 
-3. Add DNS records if needed:
+1. Add DNS records if needed:
 
 ```yaml
 dns_a_records:
@@ -21,7 +21,7 @@ dns_ptr_records:
   - { ip: "172.16.86.XX", name: "new-device.evlab.ch" }
 ```
 
-4. Deploy:
+1. Deploy:
 
 ```bash
 ansible-playbook -i inventory.yml site.yml --tags dhcp,dns_records
@@ -39,7 +39,7 @@ traefik_services:
   - { name: myapp, host: "myapp.evlab.ch", url: "http://172.16.86.XX:PORT" }
 ```
 
-2. Deploy:
+1. Deploy:
 
 ```bash
 ansible-playbook -i inventory.yml site.yml --tags traefik
@@ -59,14 +59,14 @@ echo "Private: $(cat /tmp/newclient.key)"
 echo "Public:  $(cat /tmp/newclient.pub)"
 ```
 
-2. Add to Ansible Vault:
+1. Add to Ansible Vault:
 
 ```bash
 ansible-vault edit group_vars/all/vault.yml
 # Add: vault_wg_newclient_privkey and vault_wg_newclient_pubkey
 ```
 
-3. Edit `group_vars/all/main.yml`:
+1. Edit `group_vars/all/main.yml`:
 
 ```yaml
 wireguard_peers_list:
@@ -79,13 +79,13 @@ wireguard_peers_list:
     }
 ```
 
-4. Deploy:
+1. Deploy:
 
 ```bash
 ansible-playbook -i inventory.yml site.yml --tags wireguard
 ```
 
-5. Retrieve client config:
+1. Retrieve client config:
 
 ```bash
 scp fjacquet@172.16.86.12:/etc/wireguard/clients/newclient.conf .

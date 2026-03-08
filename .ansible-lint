@@ -1,0 +1,10 @@
+---
+exclude_paths:
+  - group_vars/all/vault.yml
+  - mkdocs.yml
+
+skip_list:
+  - yaml[truthy] # allows yes/no in addition to true/false
+
+warn_list: []
+offline: false

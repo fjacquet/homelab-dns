@@ -7,9 +7,9 @@
 #   ansible-playbook -i inventory.yml site.yml --tags traefik     # Traefik uniquement
 #   ansible-playbook -i inventory.yml site.yml --tags wireguard   # WireGuard uniquement
 
-##############################################################################
+# #############################################################################
 # Phase 0 — Preparation commune (tous les noeuds)
-##############################################################################
+# #############################################################################
 - name: "Phase 0 — Preparation des noeuds infra"
   hosts: dns_servers
   become: true
@@ -52,7 +52,7 @@
         owner: root
         group: root
         mode: "0600"
-      notify: apply netplan
+      notify: Apply netplan
 
     - name: Load WireGuard kernel module
       community.general.modprobe:
@@ -67,7 +67,7 @@
         mode: "0644"
 
   handlers:
-    - name: apply netplan
+    - name: Apply netplan
       ansible.builtin.command: netplan apply
       changed_when: true
 
@@ -169,7 +169,7 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0640"
-      notify: restart technitium
+      notify: Restart technitium
 
     - name: Start Technitium
       community.docker.docker_compose_v2:
@@ -195,7 +195,7 @@
       no_log: true
 
   handlers:
-    - name: restart technitium
+    - name: Restart technitium
       community.docker.docker_compose_v2:
         project_src: "{{ docker_base_dir }}/technitium"
         state: restarted
@@ -366,7 +366,7 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"
-      notify: restart traefik
+      notify: Restart traefik
 
     - name: Deploy Traefik dynamic services
       ansible.builtin.template:
@@ -382,7 +382,7 @@
         state: present
 
   handlers:
-    - name: restart traefik
+    - name: Restart traefik
       community.docker.docker_compose_v2:
         project_src: "{{ docker_base_dir }}/traefik"
         state: restarted
@@ -423,7 +423,7 @@
         owner: root
         group: root
         mode: "0644"
-      notify: restart keepalived
+      notify: Restart keepalived
       no_log: true
 
     - name: Enable and start keepalived
@@ -449,7 +449,7 @@
       when: inventory_hostname in groups['dns_primary']
 
   handlers:
-    - name: restart keepalived
+    - name: Restart keepalived
       ansible.builtin.systemd:
         name: keepalived
         state: restarted
@@ -602,7 +602,7 @@
         owner: root
         group: root
         mode: "0600"
-      notify: restart wireguard
+      notify: Restart wireguard
       no_log: true
 
     - name: Enable and start WireGuard
@@ -664,7 +664,7 @@
       failed_when: false
 
   handlers:
-    - name: restart wireguard
+    - name: Restart wireguard
       ansible.builtin.systemd:
         name: wg-quick@wg0
         state: restarted
@@ -744,7 +744,7 @@
         group: root
         mode: "0755"
         remote_src: true
-      notify: restart node_exporter
+      notify: Restart node_exporter
 
     - name: Deploy node_exporter systemd unit
       ansible.builtin.copy:
@@ -769,7 +769,7 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: restart node_exporter
+      notify: Restart node_exporter
 
     - name: Enable and start node_exporter
       ansible.builtin.systemd:
@@ -787,7 +787,7 @@
         - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
 
   handlers:
-    - name: restart node_exporter
+    - name: Restart node_exporter
       ansible.builtin.systemd:
         name: node_exporter
         state: restarted

@@ -1,3 +1,4 @@
+---
 name: Deploy docs to GitHub Pages
 
 on:
@@ -8,7 +9,6 @@ on:
       - "docs/**"
       - "mkdocs.yml"
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # full history for git-revision-date plugin
+          fetch-depth: 0 # full history for git-revision-date plugin
 
       - uses: astral-sh/setup-uv@v5
 

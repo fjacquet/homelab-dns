@@ -85,6 +85,7 @@ Vault vars follow the pattern `vault_*` and are referenced from `main.yml`.
 ### Templates
 
 All Jinja2 templates in `templates/`. Key ones:
+
 - `technitium-compose.yml.j2`: Technitium Docker Compose
 - `traefik-compose.yml.j2`, `traefik-static.yml.j2`, `traefik-services.yml.j2`: Traefik stack
 - `keepalived.conf.j2`: VRRP config (priority differs per host via `inventory_hostname` checks)

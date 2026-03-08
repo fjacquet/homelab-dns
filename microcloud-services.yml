@@ -1,11 +1,11 @@
 ---
-##############################################################################
+# #############################################################################
 # MicroCloud — Deploy services (run AFTER microcloud init)
-##############################################################################
+# #############################################################################
 
-##############################################################################
+# #############################################################################
 # Phase 1 — Prometheus + Grafana (monitoring stack)
-##############################################################################
+# #############################################################################
 - name: "MC Services — Prometheus + Grafana"
   hosts: microcloud[0]
   become: true
@@ -47,10 +47,9 @@
             # --- MicroCloud nodes ---
             - job_name: node-microcloud
               static_configs:
-                - targets:
-{% for host in groups['microcloud'] %}
+                - targets:{%- for host in groups['microcloud'] %}
                     - {{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}
-{% endfor %}
+          {%- endfor %}
                   labels:
                     role: microcloud
 
@@ -81,7 +80,7 @@
               static_configs:
                 - targets:
                     - localhost:9090
-      notify: restart prometheus
+      notify: Restart prometheus
 
     - name: Deploy Grafana datasource provisioning
       ansible.builtin.copy:
@@ -160,7 +159,7 @@
                 - {{ grafana_dir }}/dashboards:/var/lib/grafana/dashboards
               depends_on:
                 - prometheus
-      notify: restart monitoring stack
+      notify: Restart monitoring stack
       no_log: true
 
     - name: Start monitoring stack
@@ -186,17 +185,16 @@
             prometheus.evlab.ch → http://{{ ansible_host }}:9090
 
   handlers:
-    - name: restart prometheus
+    - name: Restart prometheus
       community.docker.docker_container:
         name: prometheus
         state: started
         restart: true
 
-    - name: restart monitoring stack
+    - name: Restart monitoring stack
       community.docker.docker_compose_v2:
         project_src: /opt/monitoring
-        state: present
-        restarted: true
+        state: restarted
 
 ##############################################################################
 # Phase 2 — Checkmk (infrastructure monitoring)
@@ -300,7 +298,7 @@
                   only_from      = 172.16.86.13
                   disable        = no
               }
-          notify: restart xinetd
+          notify: Restart xinetd
 
     - name: Clean up
       ansible.builtin.file:
@@ -308,7 +306,7 @@
         state: absent
 
   handlers:
-    - name: restart xinetd
+    - name: Restart xinetd
       ansible.builtin.systemd:
         name: xinetd
         state: restarted

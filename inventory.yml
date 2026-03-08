@@ -28,7 +28,6 @@ all:
       children:
         dns_primary:
         dns_secondary:
-
     microcloud:
       hosts:
         opt3:
