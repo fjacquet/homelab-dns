@@ -46,5 +46,16 @@ jobs:
       - name: Install Ansible collections
         run: uvx --from ansible ansible-galaxy collection install -r requirements.yml
 
+      - name: Check for molecule scenarios
+        id: check_scenarios
+        run: |
+          if compgen -G "molecule/*/molecule.yml" > /dev/null; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No molecule scenarios found — skipping"
+          fi
+
       - name: Run molecule tests
+        if: steps.check_scenarios.outputs.found == 'true'
         run: uvx --with molecule --with molecule-plugins[docker] --with ansible molecule test --all
