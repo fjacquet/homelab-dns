@@ -15,6 +15,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
 
+      - name: Create dummy vault password
+        run: echo 'dummy' > ~/.vault_pass && chmod 600 ~/.vault_pass
+
       - name: Install Ansible collections
         run: uvx --from ansible ansible-galaxy collection install -r requirements.yml
 
