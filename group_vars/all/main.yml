@@ -89,7 +89,7 @@ traefik_acme_email: fred@ljf.ch
 
 traefik_services:
   - { name: homeassistant, host: "homeassistant.evlab.ch", url: "http://172.16.86.10:8123" }
-  - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.10:5678" }
+  - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.13:5678" }
   - { name: stash, host: "stash.evlab.ch", url: "http://172.16.86.10:9999" }
   - { name: pgadmin, host: "pgadmin.evlab.ch", url: "http://172.16.86.10:8888" }
   - { name: dns, host: "dns.evlab.ch", url: "http://localhost:5380" }
@@ -99,12 +99,19 @@ traefik_services:
   - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.13:3000" }
   - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.13:9090" }
   - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.13:8090" }
-  # Ansible webhook engine (Synology)
-  - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.10:8000" }
+  # Ansible webhook engine (mc-node-01)
+  - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.13:8000" }
 
-# === Ansible Webhook Engine ===
+# === n8n + Ansible Webhook (automation stack on mc-node-01) ===
+n8n_port: 5678
+n8n_dir: /opt/n8n
+automation_dir: /opt/automation
+homelab_dns_repo_dir: /opt/homelab-dns
+secrets_dir: /opt/secrets
 ansible_webhook_port: 8000
 ansible_webhook_url: "https://ansible.evlab.ch"
+n8n_encryption_key: "{{ vault_n8n_encryption_key }}"
+ansible_webhook_api_key: "{{ vault_ansible_webhook_key }}"
 
 # === WireGuard (natif, pas Docker) ===
 wireguard_server_url: vpn.evlab.ch

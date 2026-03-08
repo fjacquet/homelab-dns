@@ -45,17 +45,21 @@ To upgrade `node_exporter` to a new version, bump `node_exporter_version` in `gr
 Deployed on the Synology NAS alongside n8n. Swagger UI available at `https://ansible.evlab.ch/docs`.
 
 ```bash
-# First-time setup on Synology
-cd /volume1/homelab-dns/ansible-webhook
-echo "WEBHOOK_API_KEY=$(openssl rand -hex 32)" > .env
-docker compose up -d --build
+# First-time secrets setup on mc-node-01 (one-time, before running the playbook)
+ssh fjacquet@172.16.86.13
+sudo mkdir -p /opt/secrets
+sudo cp ~/.ssh/id_rsa /opt/secrets/id_rsa
+echo 'vault-password' | sudo tee /opt/secrets/vault_pass
+sudo chmod 600 /opt/secrets/id_rsa /opt/secrets/vault_pass
 
-# Update after code changes
-docker compose pull || docker compose build
-docker compose up -d
+# Deploy via Ansible (handles repo clone, build, start)
+ansible-playbook -i inventory.yml microcloud-services.yml --tags mc_automation
+
+# Update after code changes (rebuild image from updated repo)
+ansible-playbook -i inventory.yml update-containers.yml --limit microcloud
 
 # View logs
-docker logs ansible-webhook -f
+ssh fjacquet@172.16.86.13 "docker logs ansible-webhook -f"
 
 # Test from CLI
 curl https://ansible.evlab.ch/health

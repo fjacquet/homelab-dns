@@ -1,4 +1,13 @@
 ---
+# Standalone docker-compose for local dev/testing.
+# Production deployment is managed via microcloud-services.yml (Phase 3)
+# which deploys this service alongside n8n on mc-node-01.
+#
+# Volume layout on mc-node-01:
+#   /srv/datastore/homelab-dns  ← NFS from Synology (repo clone, playbooks)
+#   /opt/secrets/id_rsa         ← SSH key (local, not on NFS)
+#   /opt/secrets/vault_pass     ← Vault password (local, not on NFS)
+
 services:
   ansible-webhook:
     build: .
@@ -6,27 +15,13 @@ services:
     restart: unless-stopped
     environment:
       - WEBHOOK_API_KEY=${WEBHOOK_API_KEY}
-      # Optional overrides
       - PLAYBOOKS_DIR=/playbooks
       - LOG_TAIL=200
     volumes:
-      # Repo root (playbooks, inventory, group_vars, templates)
-      - /volume1/homelab-dns:/playbooks:ro
-      # SSH private key for Ansible SSH connections
-      - /volume1/secrets/id_rsa:/root/.ssh/id_rsa:ro
-      # Ansible Vault password file
-      - /volume1/secrets/vault_pass:/vault_pass:ro
-    networks:
-      - n8n_default
+      - /srv/datastore/homelab-dns:/playbooks:ro
+      - /opt/secrets/id_rsa:/root/.ssh/id_rsa:ro
+      - /opt/secrets/vault_pass:/vault_pass:ro
     ports:
       - "8000:8000"
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ansible.rule=Host(`ansible.evlab.ch`)"
-      - "traefik.http.routers.ansible.tls=true"
-      - "traefik.http.services.ansible.loadbalancer.server.port=8000"
       - "com.centurylinklabs.watchtower.enable=false"
-
-networks:
-  n8n_default:
-    external: true

@@ -76,6 +76,7 @@ ansible-vault edit group_vars/all/vault.yml
 | `site.yml` | `dns_servers` | All infra: DNS, DHCP, Traefik, keepalived, WireGuard, monitoring exporters |
 | `update.yml` | `dns_servers:microcloud` | Patch all nodes (serial), reboot if needed, verify services |
 | `update-containers.yml` | `dns_servers` + `microcloud[0]` | Pull latest container images and recreate (no reboot) |
+| `microcloud-services.yml` Phase 3 | `microcloud[0]` | n8n + ansible-webhook automation stack (NFS-backed) |
 | `microcloud-prepare.yml` | `microcloud` | Base setup, snaps, NFS mounts, node_exporter |
 | `microcloud-services.yml` | `microcloud[0]` (mc-node-01) | Prometheus, Grafana, Checkmk server + agents |
 

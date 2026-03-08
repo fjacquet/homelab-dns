@@ -48,34 +48,41 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph Synology["Synology DS923+ (172.16.86.10)"]
+    subgraph MC01["mc-node-01 (172.16.86.13)"]
         N8N["n8n container\n:5678"]
         AW["ansible-webhook container\n:8000"]
-        NET["n8n_default Docker network"]
+        NET["automation Docker network"]
         N8N -->|"http://ansible-webhook:8000"| NET
         NET --> AW
     end
 
-    subgraph Volumes["Read-only mounts"]
-        REPO["/volume1/homelab-dns\n→ /playbooks"]
-        SSH["/volume1/secrets/id_rsa\n→ /root/.ssh/id_rsa"]
-        VAULT["/volume1/secrets/vault_pass\n→ /vault_pass"]
+    subgraph NFS["NFS volumes (Synology /srv/datastore)"]
+        REPO["/srv/datastore/homelab-dns\n→ /playbooks (ro)"]
+        N8NDATA["/srv/datastore/n8n\n→ /home/node/.n8n"]
     end
 
-    AW --> Volumes
+    subgraph Local["/opt/secrets (local, not NFS)"]
+        SSH["id_rsa → /root/.ssh/id_rsa (ro)"]
+        VAULT["vault_pass → /vault_pass (ro)"]
+    end
+
+    AW --> NFS
+    AW --> Local
+    N8N --> N8NDATA
 
     subgraph Infra["Infrastructure nodes"]
         OPT1["opt1 (172.16.86.11)"]
         OPT2["opt2 (172.16.86.12)"]
-        MC["MicroCloud (.13-.15)"]
+        MCC["opt4/opt5 (MicroCloud)"]
     end
 
     AW -->|SSH :22| Infra
 
-    TRAEFIK["Traefik VIP\nansible.evlab.ch"] --> AW
+    TRAEFIK["Traefik VIP\nansible.evlab.ch\nn8n.evlab.ch"] --> MC01
 
-    style Synology fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    style Volumes fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style MC01 fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style NFS fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    style Local fill:#fce4ec,stroke:#e91e63,stroke-width:2px
     style Infra fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
 ```
 
@@ -92,8 +99,9 @@ graph TD
 - **FastAPI** — async-native, built-in OpenAPI docs at `/docs`, type-safe via Pydantic
 - **202 + polling** — Ansible playbooks run 5–15 minutes; synchronous HTTP would time out n8n. Asynchronous job model avoids this entirely
 - **In-memory job store** — sufficient for homelab single-instance deployment; no Redis/database dependency
-- **Synology placement** — same host as n8n → internal Docker network communication, no Traefik hop for n8n→webhook calls
-- **Repo mounted read-only** — container always runs the current version of playbooks from the cloned repo on the NAS
+- **MicroCloud placement** — both n8n and ansible-webhook run on mc-node-01; internal Docker network for n8n→webhook calls with no Traefik hop
+- **NFS for data volumes** — n8n workflow data and the playbook repo clone live on `/srv/datastore` (Synology NFS), ensuring persistence across container rebuilds and coverage by Synology backups
+- **Secrets stay local** — SSH key and Vault password in `/opt/secrets` on mc-node-01 (not on NFS, not replicated)
 
 ## Alternatives Considered
 
@@ -104,8 +112,8 @@ graph TD
 
 ## Consequences
 
-- Repo must be cloned at `/volume1/homelab-dns` on the Synology NAS
-- SSH key (`id_rsa`) and Vault password must be placed at `/volume1/secrets/` on the NAS
-- `WEBHOOK_API_KEY` must be set in `/volume1/homelab-dns/ansible-webhook/.env` (not committed)
+- Repo must be cloned at `/srv/datastore/homelab-dns` on mc-node-01 (NFS-backed) — handled by `microcloud-services.yml` Phase 3
+- SSH key (`id_rsa`) and Vault password must be placed at `/opt/secrets/` on mc-node-01 before first run
+- `vault_n8n_encryption_key` and `vault_ansible_webhook_key` must be added to `group_vars/all/vault.yml`
 - `ansible.evlab.ch` DNS record + Traefik service added for external access
 - OpenAPI docs available at `https://ansible.evlab.ch/docs` (protected by API key)

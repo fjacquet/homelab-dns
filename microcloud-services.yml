@@ -249,6 +249,130 @@
 
           To expose via Traefik: checkmk.evlab.ch → http://{{ ansible_host }}:8090
 
+##############################################################################
+# Phase 3 — Automation stack (n8n + ansible-webhook)
+##############################################################################
+- name: "MC Services — Automation stack (n8n + ansible-webhook)"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_automation]
+  tasks:
+    - name: Ensure git is installed
+      ansible.builtin.apt:
+        name: git
+        state: present
+
+    - name: Create automation directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ automation_dir }}"
+        - "{{ secrets_dir }}"
+        - /srv/datastore/n8n
+        - /srv/datastore/homelab-dns
+
+    - name: Clone homelab-dns repo (playbooks source)
+      ansible.builtin.git:
+        repo: "https://github.com/fjacquet/homelab-dns.git"
+        dest: /srv/datastore/homelab-dns
+        version: main
+        update: true
+
+    - name: Deploy automation docker-compose
+      ansible.builtin.copy:
+        dest: "{{ automation_dir }}/docker-compose.yml"
+        mode: "0640"
+        content: |
+          services:
+            n8n:
+              container_name: n8n
+              image: n8nio/n8n:latest
+              restart: unless-stopped
+              ports:
+                - "5678:5678"
+              environment:
+                - N8N_HOST=n8n.{{ domain }}
+                - N8N_PORT=5678
+                - N8N_PROTOCOL=https
+                - WEBHOOK_URL=https://n8n.{{ domain }}/
+                - GENERIC_TIMEZONE=Europe/Zurich
+                - N8N_ENCRYPTION_KEY={{ n8n_encryption_key }}
+              volumes:
+                - /srv/datastore/n8n:/home/node/.n8n
+              labels:
+                - "com.centurylinklabs.watchtower.enable=false"
+
+            ansible-webhook:
+              container_name: ansible-webhook
+              build: /srv/datastore/homelab-dns/ansible-webhook
+              restart: unless-stopped
+              ports:
+                - "{{ ansible_webhook_port }}:8000"
+              environment:
+                - WEBHOOK_API_KEY={{ ansible_webhook_api_key }}
+                - PLAYBOOKS_DIR=/playbooks
+                - LOG_TAIL=200
+              volumes:
+                - /srv/datastore/homelab-dns:/playbooks:ro
+                - {{ secrets_dir }}/id_rsa:/root/.ssh/id_rsa:ro
+                - {{ secrets_dir }}/vault_pass:/vault_pass:ro
+              depends_on:
+                - n8n
+              labels:
+                - "com.centurylinklabs.watchtower.enable=false"
+      notify: Restart automation stack
+      no_log: true
+
+    - name: Deploy automation stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ automation_dir }}"
+        build: always
+        state: present
+
+    - name: Wait for n8n to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:5678/healthz"
+        status_code: 200
+      register: n8n_ready
+      retries: 12
+      delay: 10
+      until: n8n_ready.status == 200
+
+    - name: Wait for ansible-webhook to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ ansible_webhook_port }}/health"
+        status_code: 200
+      register: webhook_ready
+      retries: 12
+      delay: 10
+      until: webhook_ready.status == 200
+
+    - name: Display automation access info
+      ansible.builtin.debug:
+        msg: |
+          Automation stack deployed on {{ mc_hostname }} ({{ ansible_host }}).
+
+          n8n:             https://n8n.{{ domain }}
+          ansible-webhook: https://ansible.{{ domain }}
+          Swagger UI:      https://ansible.{{ domain }}/docs
+
+          n8n data:     /srv/datastore/n8n (NFS-backed)
+          Playbooks:    /srv/datastore/homelab-dns (NFS-backed)
+          Secrets:      {{ secrets_dir }} (local, not on NFS)
+
+          Before first run, place secrets on mc-node-01:
+            cp ~/.ssh/id_rsa {{ secrets_dir }}/id_rsa
+            echo 'vault-password' > {{ secrets_dir }}/vault_pass
+            chmod 600 {{ secrets_dir }}/id_rsa {{ secrets_dir }}/vault_pass
+
+  handlers:
+    - name: Restart automation stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ automation_dir }}"
+        state: restarted
+
 - name: "MC Services — Checkmk agents on all nodes"
   hosts: dns_servers:microcloud
   become: true
