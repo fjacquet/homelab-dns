@@ -76,7 +76,7 @@
         state: absent
       notify: Apply netplan
 
-    - name: Deploy netplan (DHCP + DNS override)
+    - name: Deploy netplan (static IP + DNS)
       ansible.builtin.template:
         src: netplan-mc.yml.j2
         dest: /etc/netplan/01-mc.yaml

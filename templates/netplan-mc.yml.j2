@@ -2,7 +2,11 @@ network:
   version: 2
   ethernets:
     {{ lan_interface }}:
-      dhcp4: true
+      addresses:
+        - {{ ansible_host }}/24
+      routes:
+        - to: default
+          via: {{ gateway }}
       nameservers:
         addresses:
           - {{ dns_primary_ip }}

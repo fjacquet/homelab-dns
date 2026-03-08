@@ -8,7 +8,7 @@ dns_secondary_ip: "{{ hostvars[groups['dns_secondary'][0]]['ansible_host'] }}"
 nas_ip: 172.16.86.10
 
 # === Technitium ===
-technitium_image: technitium/dns-server:14
+technitium_image: technitium/dns-server:14.3.0
 technitium_admin_password: "{{ vault_technitium_password }}"
 technitium_web_port: 5380
 
