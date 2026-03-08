@@ -1,0 +1,28 @@
+# Managed by Ansible — do not edit manually
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+
+# Allow established/related connections
+-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow loopback
+-A INPUT -i lo -j ACCEPT
+
+# Technitium Web UI — localhost only
+-A INPUT -p tcp --dport 5380 -s 127.0.0.1 -j ACCEPT -m comment --comment "Technitium Web UI - localhost"
+{% if inventory_hostname in groups['dns_secondary'] %}
+# Allow infra1 to reach infra2 port 5380 (Traefik proxy)
+-A INPUT -p tcp --dport 5380 -s {{ dns_primary_ip }} -j ACCEPT -m comment --comment "Technitium Web UI - Traefik from infra1"
+{% endif %}
+-A INPUT -p tcp --dport 5380 -j DROP -m comment --comment "Block direct Technitium Web UI"
+
+# Traefik API — localhost only (keepalived health check)
+-A INPUT -p tcp --dport 8080 -s 127.0.0.1 -j ACCEPT -m comment --comment "Traefik API - keepalived"
+-A INPUT -p tcp --dport 8080 -j DROP -m comment --comment "Block direct Traefik API"
+
+# VRRP traffic between infra nodes
+-A INPUT -p 112 -s {{ dns_primary_ip if inventory_hostname in groups['dns_secondary'] else dns_secondary_ip }} -j ACCEPT -m comment --comment "VRRP keepalived"
+
+COMMIT

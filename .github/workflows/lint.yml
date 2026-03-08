@@ -22,7 +22,7 @@ jobs:
         run: uvx --from ansible ansible-galaxy collection install -r requirements.yml
 
       - name: Run ansible-lint
-        run: uvx --with ansible-lint ansible-lint
+        run: uvx --with "ansible-lint>=25,<26" ansible-lint
 
   yamllint:
     name: yamllint
@@ -48,4 +48,3 @@ jobs:
 
       - name: Run molecule tests
         run: uvx --with molecule --with molecule-plugins[docker] --with ansible molecule test --all
-        continue-on-error: true  # no molecule scenarios yet — will fail gracefully

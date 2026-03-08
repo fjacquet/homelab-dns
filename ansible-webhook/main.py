@@ -2,8 +2,10 @@
 
 import json
 import os
+import re
 import secrets
 import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -21,7 +23,11 @@ from pydantic import BaseModel, field_validator
 
 PLAYBOOKS_DIR = Path(os.getenv("PLAYBOOKS_DIR", "/playbooks"))
 WEBHOOK_API_KEY = os.getenv("WEBHOOK_API_KEY", "")
+if not WEBHOOK_API_KEY:
+    sys.exit("FATAL: WEBHOOK_API_KEY environment variable must be set")
 LOG_TAIL = int(os.getenv("LOG_TAIL", "100"))
+MAX_LOG_LINES = int(os.getenv("MAX_LOG_LINES", "1000"))
+MAX_JOBS = int(os.getenv("MAX_JOBS", "200"))
 
 # ---------------------------------------------------------------------------
 # Authentication
@@ -31,8 +37,6 @@ api_key_header = APIKeyHeader(name="X-API-Key")
 
 
 def verify_api_key(key: str = Security(api_key_header)) -> str:
-    if not WEBHOOK_API_KEY:
-        raise RuntimeError("WEBHOOK_API_KEY environment variable is not set")
     if not secrets.compare_digest(key, WEBHOOK_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return key
@@ -56,6 +60,9 @@ class RunRequest(BaseModel):
     limit: str | None = None
     extra_vars: dict[str, Any] | None = None
 
+    _SAFE_TAG = re.compile(r"^[a-zA-Z0-9_,\-]+$")
+    _SAFE_LIMIT = re.compile(r"^[a-zA-Z0-9_\-\.\:]+$")
+
     @field_validator("playbook")
     @classmethod
     def playbook_safe(cls, v: str) -> str:
@@ -64,6 +71,22 @@ class RunRequest(BaseModel):
             raise ValueError("playbook must be a filename, not a path")
         if not v.endswith((".yml", ".yaml")):
             raise ValueError("playbook must be a .yml or .yaml file")
+        return v
+
+    @field_validator("tags")
+    @classmethod
+    def tags_safe(cls, v: str | None) -> str | None:
+        """Only allow safe tag characters (alphanumeric, underscore, hyphen, comma)."""
+        if v is not None and not cls._SAFE_TAG.match(v):
+            raise ValueError("tags contains invalid characters")
+        return v
+
+    @field_validator("limit")
+    @classmethod
+    def limit_safe(cls, v: str | None) -> str | None:
+        """Only allow safe limit characters (alphanumeric, underscore, hyphen, dot, colon)."""
+        if v is not None and not cls._SAFE_LIMIT.match(v):
+            raise ValueError("limit contains invalid characters")
         return v
 
 
@@ -123,6 +146,8 @@ def _run_playbook(job_id: str, request: RunRequest) -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
             job.log_lines.append(line.rstrip())
+            if len(job.log_lines) > MAX_LOG_LINES:
+                job.log_lines = job.log_lines[-MAX_LOG_LINES:]
         proc.wait()
         job.returncode = proc.returncode
         job.status = (
@@ -195,6 +220,15 @@ def run(
             status_code=404,
             detail=f"Playbook '{request.playbook}' not found in {PLAYBOOKS_DIR}",
         )
+
+    # Evict oldest finished jobs when store exceeds MAX_JOBS
+    if len(jobs) >= MAX_JOBS:
+        finished = sorted(
+            (j for j in jobs.values() if j.status in {JobStatus.succeeded, JobStatus.failed}),
+            key=lambda j: j.finished_at or "",
+        )
+        for old_job in finished[: len(jobs) - MAX_JOBS + 1]:
+            jobs.pop(old_job.job_id, None)
 
     job_id = str(uuid.uuid4())
     jobs[job_id] = JobState(

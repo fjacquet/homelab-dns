@@ -3,7 +3,7 @@ network:
   ethernets:
     {{ lan_interface }}:
       addresses:
-        - {{ infra_ip }}/24
+        - {{ ansible_host }}/24
       routes:
         - to: default
           via: {{ gateway }}

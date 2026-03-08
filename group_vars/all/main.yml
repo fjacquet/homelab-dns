@@ -3,12 +3,12 @@
 domain: evlab.ch
 subnet: 172.16.86.0/24
 gateway: 172.16.86.1
-dns_primary_ip: 172.16.86.11
-dns_secondary_ip: 172.16.86.12
+dns_primary_ip: "{{ hostvars[groups['dns_primary'][0]]['ansible_host'] }}"
+dns_secondary_ip: "{{ hostvars[groups['dns_secondary'][0]]['ansible_host'] }}"
 nas_ip: 172.16.86.10
 
 # === Technitium ===
-technitium_image: technitium/dns-server:latest
+technitium_image: technitium/dns-server:14
 technitium_admin_password: "{{ vault_technitium_password }}"
 technitium_web_port: 5380
 
@@ -81,7 +81,7 @@ dhcp_reservations:
   - { mac: "78:42:1C:F2:6F:3D", ip: "172.16.86.136", name: "Resmed plug" }
 
 # === Traefik + HA (keepalived) ===
-traefik_image: traefik:latest
+traefik_image: traefik:v3.6
 traefik_vip: 172.16.86.20
 keepalived_auth_pass: "{{ vault_keepalived_pass }}"
 infomaniak_api_token: "{{ vault_infomaniak_token }}"

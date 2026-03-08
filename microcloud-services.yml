@@ -64,7 +64,7 @@
             - job_name: traefik
               scheme: https
               tls_config:
-                insecure_skip_verify: true
+                ca_file: /etc/ssl/certs/ca-certificates.crt
               static_configs:
                 - targets:
                     - {{ traefik_vip }}:443
@@ -128,7 +128,7 @@
           services:
             prometheus:
               container_name: prometheus
-              image: prom/prometheus:latest
+              image: prom/prometheus:v3
               restart: unless-stopped
               user: root
               command:
@@ -144,7 +144,7 @@
 
             grafana:
               container_name: grafana
-              image: grafana/grafana:latest
+              image: grafana/grafana:11
               restart: unless-stopped
               ports:
                 - "3000:3000"
@@ -173,7 +173,7 @@
           Monitoring stack deployed on {{ mc_hostname }} ({{ ansible_host }}).
 
           Prometheus: http://{{ ansible_host }}:9090
-          Grafana:    http://{{ ansible_host }}:3000 (admin / vault_grafana_password)
+          Grafana:    http://{{ ansible_host }}:3000 (admin / <see vault>)
 
           Recommended Grafana dashboards to import:
             - Node Exporter Full: ID 1860
@@ -216,7 +216,7 @@
     - name: Deploy Checkmk container
       community.docker.docker_container:
         name: checkmk
-        image: checkmk/check-mk-raw:latest
+        image: checkmk/check-mk-raw:2.3
         state: started
         restart_policy: unless-stopped
         published_ports:
@@ -245,7 +245,7 @@
 
           URL:      http://{{ ansible_host }}:8090/cmk/
           User:     cmkadmin
-          Password: vault_checkmk_password (or 'changeme')
+          Password: <see vault>
 
           To expose via Traefik: checkmk.evlab.ch → http://{{ ansible_host }}:8090
 
@@ -288,7 +288,7 @@
           services:
             n8n:
               container_name: n8n
-              image: n8nio/n8n:latest
+              image: n8nio/n8n:1
               restart: unless-stopped
               ports:
                 - "5678:5678"
@@ -320,6 +320,12 @@
                 - {{ secrets_dir }}/vault_pass:/vault_pass:ro
               depends_on:
                 - n8n
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+                start_period: 15s
               labels:
                 - "com.centurylinklabs.watchtower.enable=false"
       notify: Restart automation stack

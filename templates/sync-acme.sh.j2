@@ -1,12 +1,20 @@
 #!/bin/bash
-# Sync acme.json from primary to secondary (cron every hour)
+# Sync acme.json from primary to secondary (cron every 5 minutes)
 # Runs only on infra1 (primary)
 
 set -euo pipefail
 
+LOG_TAG="sync-acme"
 ACME_SRC="{{ docker_base_dir }}/traefik/certs/acme.json"
 ACME_DEST="{{ ansible_user }}@{{ dns_secondary_ip }}:{{ docker_base_dir }}/traefik/certs/acme.json"
 
 if [[ -f "$ACME_SRC" ]]; then
-    rsync -az --chmod=F600 "$ACME_SRC" "$ACME_DEST" 2>/dev/null
+    if rsync -az --chmod=F600 -e "ssh -o StrictHostKeyChecking=yes" "$ACME_SRC" "$ACME_DEST"; then
+        logger -t "$LOG_TAG" "Successfully synced acme.json to {{ dns_secondary_ip }}"
+    else
+        logger -t "$LOG_TAG" -p user.err "Failed to sync acme.json to {{ dns_secondary_ip }}"
+        exit 1
+    fi
+else
+    logger -t "$LOG_TAG" -p user.warning "acme.json not found at $ACME_SRC"
 fi

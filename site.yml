@@ -58,6 +58,7 @@
       community.general.modprobe:
         name: wireguard
         state: present
+      when: inventory_hostname in groups['dns_secondary']
 
     - name: Persist WireGuard module at boot
       ansible.builtin.lineinfile:
@@ -65,6 +66,7 @@
         line: wireguard
         create: true
         mode: "0644"
+      when: inventory_hostname in groups['dns_secondary']
 
   handlers:
     - name: Apply netplan
@@ -79,30 +81,35 @@
   become: true
   tags: [docker]
   tasks:
-    - name: Check if Docker is installed
-      ansible.builtin.command: docker --version
-      register: docker_check
-      ignore_errors: true
-      changed_when: false
+    - name: Install Docker prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
 
-    - name: Install Docker via convenience script
-      when: docker_check.rc != 0
-      block:
-        - name: Download Docker install script
-          ansible.builtin.get_url:
-            url: https://get.docker.com
-            dest: /tmp/get-docker.sh
-            mode: "0755"
+    - name: Add Docker GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
 
-        - name: Run Docker install script
-          ansible.builtin.command: /tmp/get-docker.sh
-          register: docker_install
-          changed_when: "'is already the newest version' not in docker_install.stdout"
+    - name: Add Docker APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
 
-        - name: Clean up install script
-          ansible.builtin.file:
-            path: /tmp/get-docker.sh
-            state: absent
+    - name: Install Docker Engine
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+        update_cache: true
 
     - name: Add user to docker group
       ansible.builtin.user:
@@ -171,6 +178,16 @@
         mode: "0640"
       notify: Restart technitium
 
+    - name: Deploy Technitium secrets env file
+      ansible.builtin.copy:
+        dest: "{{ docker_base_dir }}/technitium/.env"
+        content: "DNS_SERVER_ADMIN_PASSWORD={{ technitium_admin_password }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart technitium
+      no_log: true
+
     - name: Start Technitium
       community.docker.docker_compose_v2:
         project_src: "{{ docker_base_dir }}/technitium"
@@ -181,7 +198,12 @@
 
     - name: Wait for Technitium API
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/user/login?user=admin&pass={{ technitium_admin_password }}"
+        url: "http://localhost:{{ technitium_web_port }}/api/user/login"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          user: admin
+          pass: "{{ technitium_admin_password }}"
         return_content: true
       register: technitium_login
       retries: 10
@@ -211,11 +233,17 @@
     # --- Zone forward evlab.ch ---
     - name: Create primary zone evlab.ch
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone={{ domain }}&type=Primary"
-        method: GET
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "{{ domain }}"
+          type: Primary
       register: zone_create
       failed_when: false
       changed_when: "'was created' in (zone_create.content | default(''))"
+      no_log: true
 
     - name: Configure zone transfer for evlab.ch
       ansible.builtin.uri:
@@ -229,15 +257,22 @@
           zoneTransferNetworkACL: "{{ dns_secondary_ip }}"
           notify: SpecifiedNameServers
           notifyNameServers: "{{ dns_secondary_ip }}"
+      no_log: true
 
     # --- Zone reverse ---
     - name: Create primary reverse zone
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone=86.16.172.in-addr.arpa&type=Primary"
-        method: GET
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "86.16.172.in-addr.arpa"
+          type: Primary
       register: rzone_create
       failed_when: false
       changed_when: "'was created' in (rzone_create.content | default(''))"
+      no_log: true
 
     - name: Configure zone transfer for reverse zone
       ansible.builtin.uri:
@@ -251,6 +286,7 @@
           zoneTransferNetworkACL: "{{ dns_secondary_ip }}"
           notify: SpecifiedNameServers
           notifyNameServers: "{{ dns_secondary_ip }}"
+      no_log: true
 
     # --- A records ---
     - name: Add A records
@@ -269,6 +305,7 @@
       loop: "{{ dns_a_records }}"
       loop_control:
         label: "{{ item.name }} → {{ item.ip }}"
+      no_log: true
 
     # --- PTR records ---
     - name: Add PTR records
@@ -287,6 +324,7 @@
       loop: "{{ dns_ptr_records }}"
       loop_control:
         label: "{{ item.ip }} → {{ item.name }}"
+      no_log: true
 
 ##############################################################################
 # Phase 4 — Technitium secondary zone config via API
@@ -298,17 +336,31 @@
   tasks:
     - name: Create secondary zone evlab.ch
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone={{ domain }}&type=Secondary&primaryNameServerAddresses={{ dns_primary_ip }}"
-        method: GET
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "{{ domain }}"
+          type: Secondary
+          primaryNameServerAddresses: "{{ dns_primary_ip }}"
       register: sec_zone
       failed_when: false
+      no_log: true
 
     - name: Create secondary reverse zone
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/zones/create?token={{ technitium_token }}&zone=86.16.172.in-addr.arpa&type=Secondary&primaryNameServerAddresses={{ dns_primary_ip }}"
-        method: GET
+        url: "http://localhost:{{ technitium_web_port }}/api/zones/create"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          zone: "86.16.172.in-addr.arpa"
+          type: Secondary
+          primaryNameServerAddresses: "{{ dns_primary_ip }}"
       register: sec_rzone
       failed_when: false
+      no_log: true
 
 ##############################################################################
 # Phase 5 — Blocklists (tous les noeuds)
@@ -330,6 +382,7 @@
           blockListUpdateIntervalHours: "24"
       register: blocking_result
       failed_when: false
+      no_log: true
 
 ##############################################################################
 # Phase 6 — Traefik (les 2 noeuds pour HA)
@@ -358,6 +411,26 @@
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0640"
+
+    - name: Deploy Traefik secrets env file
+      ansible.builtin.copy:
+        dest: "{{ docker_base_dir }}/traefik/.env"
+        content: "INFOMANIAK_ACCESS_TOKEN={{ infomaniak_api_token }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      notify: Restart traefik
+      no_log: true
+
+    - name: Pre-create acme.json with correct permissions
+      ansible.builtin.file:
+        path: "{{ docker_base_dir }}/traefik/certs/acme.json"
+        state: touch
+        owner: root
+        group: root
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
 
     - name: Deploy Traefik static config
       ansible.builtin.template:
@@ -441,10 +514,10 @@
         mode: "0700"
       when: inventory_hostname in groups['dns_primary']
 
-    - name: ACME sync cron every hour (primary only)
+    - name: ACME sync cron every 5 minutes (primary only)
       ansible.builtin.cron:
         name: "Sync acme.json to infra2"
-        minute: "15"
+        minute: "*/5"
         job: "{{ docker_base_dir }}/traefik/sync-acme.sh"
       when: inventory_hostname in groups['dns_primary']
 
@@ -467,60 +540,18 @@
         name: iptables-persistent
         state: present
 
-    - name: Allow localhost access to 5380
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: tcp
-        destination_port: "5380"
-        source: 127.0.0.1
-        jump: ACCEPT
-        comment: "Technitium Web UI - localhost only"
+    - name: Deploy iptables rules from template
+      ansible.builtin.template:
+        src: iptables-rules.v4.j2
+        dest: /etc/iptables/rules.v4
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restore iptables rules
 
-    - name: Allow infra1 to reach infra2 port 5380 (for dns2.evlab.ch via Traefik)
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: tcp
-        destination_port: "5380"
-        source: "{{ dns_primary_ip }}"
-        jump: ACCEPT
-        comment: "Technitium Web UI - Traefik proxy from infra1"
-      when: inventory_hostname in groups['dns_secondary']
-
-    - name: Block external access to 5380
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: tcp
-        destination_port: "5380"
-        jump: DROP
-        comment: "Block direct Technitium Web UI access"
-
-    - name: Allow localhost access to 8080 (Traefik API for keepalived)
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: tcp
-        destination_port: "8080"
-        source: 127.0.0.1
-        jump: ACCEPT
-        comment: "Traefik API - keepalived health check"
-
-    - name: Block external access to 8080
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: tcp
-        destination_port: "8080"
-        jump: DROP
-        comment: "Block direct Traefik API access"
-
-    - name: Allow VRRP traffic between infra nodes
-      ansible.builtin.iptables:
-        chain: INPUT
-        protocol: "112"
-        source: "{{ dns_primary_ip if inventory_hostname in groups['dns_secondary'] else dns_secondary_ip }}"
-        jump: ACCEPT
-        comment: "VRRP keepalived"
-
-    - name: Save iptables rules
-      ansible.builtin.command: netfilter-persistent save
+  handlers:
+    - name: Restore iptables rules
+      ansible.builtin.shell: iptables-restore < /etc/iptables/rules.v4
       changed_when: true
 
 ##############################################################################
@@ -549,12 +580,18 @@
           dnsSuffix: "{{ domain }}"
       register: dhcp_result
       failed_when: false
+      no_log: true
 
     - name: Enable DHCP scope
       ansible.builtin.uri:
-        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/enable?token={{ technitium_token }}&name=lan-{{ inventory_hostname }}"
-        method: GET
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/enable"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "lan-{{ inventory_hostname }}"
       failed_when: false
+      no_log: true
 
     - name: Add DHCP reservations (both servers for HA)
       ansible.builtin.uri:
@@ -571,6 +608,7 @@
       loop_control:
         label: "{{ item.name }} ({{ item.ip }})"
       failed_when: false
+      no_log: true
 
 ##############################################################################
 # Phase 9 — WireGuard natif (infra2 only)
@@ -715,83 +753,8 @@
   hosts: dns_servers
   become: true
   tags: [monitoring, node_exporter]
-  tasks:
-    - name: Create node_exporter system user
-      ansible.builtin.user:
-        name: node_exporter
-        system: true
-        shell: /usr/sbin/nologin
-        create_home: false
-
-    - name: Download node_exporter
-      ansible.builtin.get_url:
-        url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
-        dest: /tmp/node_exporter.tar.gz
-        mode: "0644"
-        checksum: "sha256:https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/sha256sums.txt"
-
-    - name: Extract node_exporter
-      ansible.builtin.unarchive:
-        src: /tmp/node_exporter.tar.gz
-        dest: /tmp
-        remote_src: true
-
-    - name: Install node_exporter binary
-      ansible.builtin.copy:
-        src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
-        dest: /usr/local/bin/node_exporter
-        owner: root
-        group: root
-        mode: "0755"
-        remote_src: true
-      notify: Restart node_exporter
-
-    - name: Deploy node_exporter systemd unit
-      ansible.builtin.copy:
-        dest: /etc/systemd/system/node_exporter.service
-        mode: "0644"
-        content: |
-          [Unit]
-          Description=Prometheus Node Exporter
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          User=node_exporter
-          Group=node_exporter
-          Type=simple
-          ExecStart=/usr/local/bin/node_exporter \
-            --web.listen-address=:{{ node_exporter_port }} \
-            --collector.systemd \
-            --collector.processes
-          Restart=always
-          RestartSec=5
-
-          [Install]
-          WantedBy=multi-user.target
-      notify: Restart node_exporter
-
-    - name: Enable and start node_exporter
-      ansible.builtin.systemd:
-        name: node_exporter
-        enabled: true
-        state: started
-        daemon_reload: true
-
-    - name: Clean up download
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /tmp/node_exporter.tar.gz
-        - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
-
-  handlers:
-    - name: Restart node_exporter
-      ansible.builtin.systemd:
-        name: node_exporter
-        state: restarted
-        daemon_reload: true
+  roles:
+    - node_exporter
 
 - name: "Phase 10 — cAdvisor (Docker metrics)"
   hosts: dns_servers

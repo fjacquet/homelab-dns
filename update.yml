@@ -20,7 +20,7 @@
 
     # MicroCloud only: evacuate LXD instances before reboot
     - name: Evacuate LXD cluster member before reboot
-      ansible.builtin.command: lxc cluster evacuate {{ inventory_hostname }} --force
+      ansible.builtin.command: lxc cluster evacuate {{ mc_hostname }} --force
       changed_when: true
       when:
         - inventory_hostname in groups['microcloud']
@@ -42,6 +42,7 @@
       ansible.builtin.systemd:
         name: docker
         state: started
+      when: inventory_hostname in groups['dns_servers']
 
     # dns_servers: verify Technitium and Traefik are back
 
@@ -78,7 +79,7 @@
       when: inventory_hostname in groups['microcloud']
 
     - name: Restore LXD cluster member after reboot
-      ansible.builtin.command: lxc cluster restore {{ inventory_hostname }}
+      ansible.builtin.command: lxc cluster restore {{ mc_hostname }}
       changed_when: true
       when:
         - inventory_hostname in groups['microcloud']

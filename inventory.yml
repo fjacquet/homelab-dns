@@ -11,7 +11,6 @@ all:
         opt1:
           ansible_host: 172.16.86.11
           infra_hostname: infra1
-          infra_ip: 172.16.86.11
           dhcp_range_start: 172.16.86.100
           dhcp_range_end: 172.16.86.179
 
@@ -20,7 +19,6 @@ all:
         opt2:
           ansible_host: 172.16.86.12
           infra_hostname: infra2
-          infra_ip: 172.16.86.12
           dhcp_range_start: 172.16.86.180
           dhcp_range_end: 172.16.86.200
 
