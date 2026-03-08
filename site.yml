@@ -407,7 +407,7 @@
   become: true
   tags: [traefik]
   tasks:
-    - name: Create Traefik directories (secondary)
+    - name: Create Traefik directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -417,7 +417,6 @@
       loop:
         - "{{ docker_base_dir }}/traefik/config/dynamic"
         - "{{ docker_base_dir }}/traefik/certs"
-      when: inventory_hostname in groups['dns_secondary']
 
     - name: Deploy Traefik docker-compose.yml
       ansible.builtin.template:
