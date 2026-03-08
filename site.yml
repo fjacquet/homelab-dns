@@ -547,12 +547,10 @@
         owner: root
         group: root
         mode: "0644"
-      notify: Restore iptables rules
 
-  handlers:
-    - name: Restore iptables rules
-      ansible.builtin.shell: iptables-restore < /etc/iptables/rules.v4
-      changed_when: true
+    - name: Apply iptables rules from file
+      ansible.builtin.command: netfilter-persistent reload
+      changed_when: false
 
 ##############################################################################
 # Phase 8 — DHCP scopes via API (primary + secondary)
