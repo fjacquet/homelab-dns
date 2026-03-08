@@ -16,30 +16,51 @@ Ansible-automated homelab infrastructure on 5 Dell Optiplex Micro machines: HA D
 
 ## Architecture
 
-```
-                         ┌─────────────┐
-                         │  Wingo IB4  │ WAN / NAT
-                         │ 172.16.86.1 │ UDP 51820 → infra2
-                         └──────┬──────┘
-                                │ 172.16.86.0/24
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                      │
-   ┌──────┴──────┐      ┌──────┴──────┐      ┌───────┴───────┐
-   │   infra1    │      │   infra2    │      │  MicroCloud   │
-   │ .11 (opt1)  │      │ .12 (opt2)  │      │ .13/.14/.15   │
-   ├─────────────┤      ├─────────────┤      ├───────────────┤
-   │ DNS PRIMARY │      │ DNS SECOND. │      │ Prometheus    │
-   │ Traefik  HA │◄─VIP─┤ Traefik  HA │      │ Grafana       │
-   │ keepalived  │ .20  │ keepalived  │      │ Checkmk       │
-   │ DHCP 80%    │      │ DHCP 20%    │      │ OVN + NFS     │
-   │ DDNS cron   │      │ WireGuard   │      └───────┬───────┘
-   └─────────────┘      └─────────────┘              │
-                                              ┌──────┴──────┐
-                                              │ Synology    │
-                                              │ DS923+ .10  │
-                                              │ NFS storage │
-                                              │ HA/n8n/apps │
-                                              └─────────────┘
+```mermaid
+graph TD
+    WAN["<b>Wingo IB4</b><br/>172.16.86.1<br/>WAN / NAT<br/>UDP 51820 → infra2"]
+
+    WAN -->|172.16.86.0/24| infra1
+    WAN -->|172.16.86.0/24| infra2
+    WAN -->|172.16.86.0/24| MC
+
+    subgraph infra1["infra1 — .11 (opt1)"]
+        I1_DNS["DNS PRIMARY"]
+        I1_TRAEFIK["Traefik HA"]
+        I1_KA["keepalived"]
+        I1_DHCP["DHCP 80%"]
+        I1_DDNS["DDNS cron"]
+    end
+
+    subgraph infra2["infra2 — .12 (opt2)"]
+        I2_DNS["DNS SECONDARY"]
+        I2_TRAEFIK["Traefik HA"]
+        I2_KA["keepalived"]
+        I2_DHCP["DHCP 20%"]
+        I2_WG["WireGuard"]
+    end
+
+    I1_TRAEFIK <-->|"VIP .20"| I2_TRAEFIK
+
+    subgraph MC["MicroCloud — .13/.14/.15"]
+        MC_PROM["Prometheus"]
+        MC_GRAF["Grafana"]
+        MC_CHK["Checkmk"]
+        MC_OVN["OVN + NFS"]
+    end
+
+    MC_OVN --> NAS
+
+    subgraph NAS["Synology DS923+ — .10"]
+        NAS_NFS["NFS storage"]
+        NAS_APPS["HA / n8n / apps"]
+    end
+
+    style WAN fill:#f9f,stroke:#333,stroke-width:2px
+    style infra1 fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
+    style infra2 fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
+    style MC fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style NAS fill:#fff3e0,stroke:#ff9800,stroke-width:2px
 ```
 
 ## Quick Start
@@ -64,11 +85,28 @@ ansible-playbook -i inventory.yml microcloud-services.yml
 
 ## Playbooks
 
-| Playbook | Target | Description |
-|----------|--------|-------------|
-| `site.yml` | infra1 + infra2 | DNS, DHCP, Traefik, keepalived, WireGuard, monitoring exporters |
-| `microcloud-prepare.yml` | opt3/4/5 | Base setup, snaps, NFS mounts, node_exporter |
-| `microcloud-services.yml` | mc-node-01 | Prometheus, Grafana, Checkmk server + agents |
+```mermaid
+graph LR
+    subgraph Playbooks
+        SITE["<b>site.yml</b>"]
+        MCP["<b>microcloud-prepare.yml</b>"]
+        MCS["<b>microcloud-services.yml</b>"]
+    end
+
+    subgraph Targets
+        I1I2["infra1 + infra2"]
+        OPT["opt3 / opt4 / opt5"]
+        MC1["mc-node-01"]
+    end
+
+    SITE -->|"DNS, DHCP, Traefik,<br/>keepalived, WireGuard,<br/>monitoring exporters"| I1I2
+    MCP -->|"Base setup, snaps,<br/>NFS mounts, node_exporter"| OPT
+    MCS -->|"Prometheus, Grafana,<br/>Checkmk server + agents"| MC1
+
+    style SITE fill:#e6f3ff,stroke:#0078D4
+    style MCP fill:#e8f5e9,stroke:#4caf50
+    style MCS fill:#fff3e0,stroke:#ff9800
+```
 
 ### Phase-by-Phase Deployment
 
@@ -93,20 +131,40 @@ ansible-playbook -i inventory.yml site.yml --check --diff
 
 ## Services
 
-| Service | URL | Host |
-|---------|-----|------|
-| Technitium DNS | `https://dns.evlab.ch` | infra1 |
-| Technitium DNS | `https://dns2.evlab.ch` | infra2 |
-| Home Assistant | `https://homeassistant.evlab.ch` | Synology |
-| n8n | `https://n8n.evlab.ch` | Synology |
-| Stash | `https://stash.evlab.ch` | Synology |
-| pgAdmin | `https://pgadmin.evlab.ch` | Synology |
-| NAS (DSM) | `https://nas.evlab.ch` | Synology |
-| Grafana | `https://grafana.evlab.ch` | mc-node-01 |
-| Prometheus | `https://prometheus.evlab.ch` | mc-node-01 |
-| Checkmk | `https://checkmk.evlab.ch` | mc-node-01 |
-
 All services behind Traefik HA (VIP `172.16.86.20`) with Let's Encrypt wildcard cert `*.evlab.ch`.
+
+```mermaid
+graph TD
+    TRAEFIK["<b>Traefik HA</b><br/>VIP 172.16.86.20<br/>*.evlab.ch wildcard cert"]
+
+    subgraph infra["Infrastructure"]
+        DNS1["Technitium DNS<br/>dns.evlab.ch<br/><i>infra1</i>"]
+        DNS2["Technitium DNS<br/>dns2.evlab.ch<br/><i>infra2</i>"]
+    end
+
+    subgraph synology["Synology DS923+"]
+        HA["Home Assistant<br/>homeassistant.evlab.ch"]
+        N8N["n8n<br/>n8n.evlab.ch"]
+        STASH["Stash<br/>stash.evlab.ch"]
+        PGA["pgAdmin<br/>pgadmin.evlab.ch"]
+        DSM["NAS DSM<br/>nas.evlab.ch"]
+    end
+
+    subgraph microcloud["MicroCloud (mc-node-01)"]
+        GRAF["Grafana<br/>grafana.evlab.ch"]
+        PROM["Prometheus<br/>prometheus.evlab.ch"]
+        CHK["Checkmk<br/>checkmk.evlab.ch"]
+    end
+
+    TRAEFIK --> DNS1 & DNS2
+    TRAEFIK --> HA & N8N & STASH & PGA & DSM
+    TRAEFIK --> GRAF & PROM & CHK
+
+    style TRAEFIK fill:#24A1C1,stroke:#333,color:#fff,stroke-width:2px
+    style infra fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
+    style synology fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    style microcloud fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+```
 
 ## Key Design Decisions
 
@@ -120,44 +178,64 @@ See [Architecture Decision Records](docs/ARD.md) for full rationale.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [PRD](docs/PRD.md) | Product Requirements — goals, functional & non-functional requirements |
-| [ARD](docs/ARD.md) | Architecture Decision Records — 9 key decisions with rationale |
-| [User Guide](docs/USER-GUIDE.md) | Operations, maintenance, troubleshooting, day-2 procedures |
+```mermaid
+graph LR
+    DOCS["<b>Documentation</b>"]
+
+    PRD["<b>PRD</b><br/>Product Requirements<br/>Goals, functional &<br/>non-functional requirements"]
+    ARD["<b>ARD</b><br/>Architecture Decisions<br/>9 key decisions<br/>with rationale"]
+    UG["<b>User Guide</b><br/>Operations, maintenance,<br/>troubleshooting,<br/>day-2 procedures"]
+
+    DOCS --> PRD & ARD & UG
+
+    click PRD "docs/PRD.md"
+    click ARD "docs/ARD.md"
+    click UG "docs/USER-GUIDE.md"
+
+    style DOCS fill:#f5f5f5,stroke:#333,stroke-width:2px
+    style PRD fill:#e6f3ff,stroke:#0078D4
+    style ARD fill:#e8f5e9,stroke:#4caf50
+    style UG fill:#fff3e0,stroke:#ff9800
+```
 
 ## Project Structure
 
-```
-homelab-dns/
-├── README.md
-├── .gitignore
-├── ansible.cfg
-├── inventory.yml
-├── site.yml                     # Infra playbook (DNS/HTTPS/VPN/DHCP)
-├── microcloud-prepare.yml       # MicroCloud node preparation
-├── microcloud-services.yml      # Monitoring stack (Prometheus/Grafana/Checkmk)
-├── group_vars/
-│   └── all/
-│       ├── main.yml             # Variables (IPs, DNS records, services)
-│       └── vault.yml            # Encrypted secrets (ansible-vault)
-├── templates/                   # Jinja2 templates
-│   ├── technitium-compose.yml.j2
-│   ├── traefik-static.yml.j2
-│   ├── traefik-compose.yml.j2
-│   ├── traefik-services.yml.j2
-│   ├── keepalived.conf.j2
-│   ├── check-traefik.sh.j2
-│   ├── sync-acme.sh.j2
-│   ├── wg0.conf.j2
-│   ├── wg-client.conf.j2
-│   ├── netplan-infra.yml.j2
-│   ├── update-ddns.sh.j2
-│   └── backup-infra.sh.j2
-└── docs/
-    ├── PRD.md
-    ├── ARD.md
-    └── USER-GUIDE.md
+```mermaid
+graph TD
+    ROOT["<b>homelab-dns/</b>"]
+
+    ROOT --- CFG["ansible.cfg<br/>inventory.yml<br/>.gitignore"]
+    ROOT --- PB["<b>Playbooks</b>"]
+    ROOT --- GV["<b>group_vars/all/</b>"]
+    ROOT --- TPL["<b>templates/</b>"]
+    ROOT --- DOC["<b>docs/</b>"]
+    ROOT --- TOOLS["<b>tools/</b>"]
+
+    PB --- S["site.yml<br/><i>DNS/HTTPS/VPN/DHCP</i>"]
+    PB --- MP["microcloud-prepare.yml<br/><i>Node preparation</i>"]
+    PB --- MS["microcloud-services.yml<br/><i>Prometheus/Grafana/Checkmk</i>"]
+
+    GV --- MV["main.yml<br/><i>Variables</i>"]
+    GV --- VV["vault.yml<br/><i>Encrypted secrets</i>"]
+
+    TPL --- T1["technitium-compose.yml.j2"]
+    TPL --- T2["traefik-*.yml.j2"]
+    TPL --- T3["keepalived.conf.j2"]
+    TPL --- T4["wg0.conf.j2 / wg-client.conf.j2"]
+    TPL --- T5["netplan / ddns / backup .j2"]
+
+    DOC --- D1["PRD.md"]
+    DOC --- D2["ARD.md"]
+    DOC --- D3["USER-GUIDE.md"]
+
+    TOOLS --- AI["ansible_ai.py<br/><i>AI playbook generator</i>"]
+
+    style ROOT fill:#f5f5f5,stroke:#333,stroke-width:2px
+    style PB fill:#e6f3ff,stroke:#0078D4
+    style GV fill:#e8f5e9,stroke:#4caf50
+    style TPL fill:#fff3e0,stroke:#ff9800
+    style DOC fill:#fce4ec,stroke:#e91e63
+    style TOOLS fill:#f3e5f5,stroke:#9c27b0
 ```
 
 ## License
