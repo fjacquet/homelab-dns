@@ -827,6 +827,7 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  become: false
   tags: [mc_checkmk_hosts]
   vars:
     checkmk_url: "http://172.16.86.22/cmk/api/1.0"
