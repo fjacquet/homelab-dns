@@ -64,6 +64,7 @@
   tasks:
     - name: Deploy full Prometheus config (with node-vms job)
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'PROM_EOF' | lxc exec {{ vm_name }} -- tee /etc/prometheus/prometheus.yml
         global:
           scrape_interval: 15s
@@ -124,6 +125,8 @@
               - targets:
                   - localhost:9090
         PROM_EOF
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Reload Prometheus config (lifecycle API)

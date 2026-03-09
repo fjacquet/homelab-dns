@@ -61,9 +61,11 @@
           loop: "{{ groups['microcloud'] }}"
           loop_control:
             label: "{{ hostvars[item]['mc_hostname'] }}"
+          changed_when: true
 
         - name: Finalize storage pool
           ansible.builtin.command: lxc storage create datastore dir
+          changed_when: true
 
     - name: Ensure default profile has root disk
       ansible.builtin.command: lxc profile device add default root disk path=/ pool=datastore
@@ -151,6 +153,7 @@
             --profile bridged-lan
             -c limits.cpu=2
             -c limits.memory=4GB
+          changed_when: true
 
         - name: Wait for VM agent to be ready
           ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
@@ -158,6 +161,7 @@
           delay: 10
           register: vm_agent
           until: vm_agent.rc == 0
+          changed_when: false
 
         - name: Remove cloud-init default netplan (disables DHCP)
           ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
@@ -165,6 +169,7 @@
 
         - name: Configure static IP via netplan
           ansible.builtin.shell: |
+            set -o pipefail
             cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
             network:
               version: 2
@@ -181,10 +186,13 @@
                       - {{ dns_primary_ip }}
                       - {{ dns_secondary_ip }}
             NETPLAN
+          args:
+            executable: /bin/bash
           changed_when: true
 
         - name: Apply netplan
           ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+          changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -201,6 +209,7 @@
     # --- Prometheus config ---
     - name: Deploy Prometheus config
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'PROM_EOF' | lxc exec {{ vm_name }} -- tee /etc/prometheus/prometheus.yml
         global:
           scrape_interval: 15s
@@ -251,6 +260,8 @@
               - targets:
                   - localhost:9090
         PROM_EOF
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Configure Prometheus retention
@@ -279,17 +290,21 @@
 
     - name: Configure Grafana settings
       ansible.builtin.shell: |
+        set -o pipefail
         lxc exec {{ vm_name }} -- bash -c "
           sed -i 's/^;admin_user =.*/admin_user = admin/' /etc/grafana/grafana.ini
           sed -i 's/^;admin_password =.*/admin_password = {{ vault_grafana_password }}/' /etc/grafana/grafana.ini
           sed -i 's/^;allow_sign_up =.*/allow_sign_up = false/' /etc/grafana/grafana.ini
           sed -i 's|^;root_url =.*|root_url = https://grafana.{{ domain }}|' /etc/grafana/grafana.ini
         "
+      args:
+        executable: /bin/bash
       changed_when: true
       no_log: true
 
     - name: Deploy Grafana datasource provisioning
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'GRAF_DS' | lxc exec {{ vm_name }} -- tee /etc/grafana/provisioning/datasources/prometheus.yml
         apiVersion: 1
         datasources:
@@ -300,10 +315,13 @@
             isDefault: true
             editable: false
         GRAF_DS
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Deploy Grafana dashboard provisioning
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'GRAF_DASH' | lxc exec {{ vm_name }} -- tee /etc/grafana/provisioning/dashboards/default.yml
         apiVersion: 1
         providers:
@@ -317,6 +335,8 @@
               path: /var/lib/grafana/dashboards
               foldersFromFilesStructure: false
         GRAF_DASH
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Enable and start Grafana
@@ -375,6 +395,7 @@
             --profile bridged-lan
             -c limits.cpu=2
             -c limits.memory=4GB
+          changed_when: true
 
         - name: Wait for VM agent to be ready
           ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
@@ -382,6 +403,7 @@
           delay: 10
           register: vm_agent
           until: vm_agent.rc == 0
+          changed_when: false
 
         - name: Remove cloud-init default netplan (disables DHCP)
           ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
@@ -389,6 +411,7 @@
 
         - name: Configure static IP via netplan
           ansible.builtin.shell: |
+            set -o pipefail
             cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
             network:
               version: 2
@@ -405,10 +428,13 @@
                       - {{ dns_primary_ip }}
                       - {{ dns_secondary_ip }}
             NETPLAN
+          args:
+            executable: /bin/bash
           changed_when: true
 
         - name: Apply netplan
           ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+          changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -437,6 +463,7 @@
 
     - name: Create Checkmk site
       ansible.builtin.shell: |
+        set -o pipefail
         lxc exec {{ vm_name }} -- bash -c '
           if ! omd sites | grep -q cmk; then
             omd create cmk
@@ -446,11 +473,14 @@
             omd start cmk || true
           fi
         '
+      args:
+        executable: /bin/bash
       changed_when: true
       no_log: true
 
     - name: Disable login lock during initial setup
       ansible.builtin.shell: |
+        set -o pipefail
         lxc exec {{ vm_name }} -- bash -c '
           WATO_DIR=/omd/sites/cmk/etc/check_mk/multisite.d/wato
           mkdir -p "$WATO_DIR"
@@ -461,6 +491,8 @@
           echo 0 > /omd/sites/cmk/var/check_mk/web/cmkadmin/num_failed_logins.mk
           chown cmk:cmk /omd/sites/cmk/var/check_mk/web/cmkadmin/num_failed_logins.mk
         '
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Capture VM MAC address for DHCP reservation
@@ -521,6 +553,7 @@
             --profile bridged-lan
             -c limits.cpu=2
             -c limits.memory=4GB
+          changed_when: true
 
         - name: Wait for VM agent to be ready
           ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
@@ -528,6 +561,7 @@
           delay: 10
           register: vm_agent
           until: vm_agent.rc == 0
+          changed_when: false
 
         - name: Remove cloud-init default netplan (disables DHCP)
           ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
@@ -535,6 +569,7 @@
 
         - name: Configure static IP via netplan
           ansible.builtin.shell: |
+            set -o pipefail
             cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
             network:
               version: 2
@@ -551,10 +586,13 @@
                       - {{ dns_primary_ip }}
                       - {{ dns_secondary_ip }}
             NETPLAN
+          args:
+            executable: /bin/bash
           changed_when: true
 
         - name: Apply netplan
           ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+          changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -590,6 +628,7 @@
 
     - name: Deploy n8n environment file
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'N8N_ENV' | lxc exec {{ vm_name }} -- tee /etc/default/n8n
         N8N_HOST=0.0.0.0
         N8N_PORT=5678
@@ -600,11 +639,14 @@
         N8N_USER_FOLDER=/var/lib/n8n
         N8N_ENV=
         N8N_ENV
+      args:
+        executable: /bin/bash
       changed_when: true
       no_log: true
 
     - name: Deploy n8n systemd service
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'N8N_SVC' | lxc exec {{ vm_name }} -- tee /etc/systemd/system/n8n.service
         [Unit]
         Description=n8n workflow automation
@@ -621,6 +663,8 @@
         [Install]
         WantedBy=multi-user.target
         N8N_SVC
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Enable and start n8n
@@ -656,16 +700,20 @@
 
     - name: Deploy ansible-webhook environment file
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'WH_ENV' | lxc exec {{ vm_name }} -- tee /etc/default/ansible-webhook
         WEBHOOK_API_KEY={{ ansible_webhook_api_key }}
         PLAYBOOKS_DIR=/opt/homelab-dns
         LOG_TAIL=200
         WH_ENV
+      args:
+        executable: /bin/bash
       changed_when: true
       no_log: true
 
     - name: Deploy ansible-webhook systemd service
       ansible.builtin.shell: |
+        set -o pipefail
         cat <<'WH_SVC' | lxc exec {{ vm_name }} -- tee /etc/systemd/system/ansible-webhook.service
         [Unit]
         Description=Ansible Webhook Engine
@@ -683,6 +731,8 @@
         [Install]
         WantedBy=multi-user.target
         WH_SVC
+      args:
+        executable: /bin/bash
       changed_when: true
 
     - name: Create secrets directory
