@@ -18,6 +18,6 @@ RESPONSE=$(curl -s -X PUT \
     "https://api.infomaniak.com/1/domain/$DOMAIN_ID/dns/record/$RECORD_ID" \
     -H "Authorization: Bearer $INFOMANIAK_TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"type\":\"A\",\"source\":\"vpn\",\"target\":\"$CURRENT_IP\"}")
+    -d "{\"type\":\"A\",\"source\":\"vpn\",\"target\":\"$CURRENT_IP\",\"ttl\":300}")
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') IP=$CURRENT_IP response=$RESPONSE"
