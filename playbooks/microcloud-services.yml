@@ -824,10 +824,9 @@
 # Phase 5 — Register hosts in Checkmk via REST API
 # #############################################################################
 - name: "MC Services — Register hosts in Checkmk"
-  hosts: localhost
-  connection: local
+  hosts: microcloud[0]
   gather_facts: false
-  become: false
+  become: true
   tags: [mc_checkmk_hosts]
   vars:
     checkmk_url: "http://172.16.86.22/cmk/api/1.0"
