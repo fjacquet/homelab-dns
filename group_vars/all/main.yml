@@ -56,6 +56,7 @@ dns_a_records:
   - { name: "wash.evlab.ch", ip: "172.16.86.134" }
   - { name: "robot.evlab.ch", ip: "172.16.86.135" }
   - { name: "resmed.evlab.ch", ip: "172.16.86.136" }
+  - { name: "samsung-fred.evlab.ch", ip: "172.16.86.109" }
 
 dns_ptr_records:
   - { ip: "172.16.86.1", name: "gateway.evlab.ch" }
@@ -83,6 +84,7 @@ dns_ptr_records:
   - { ip: "172.16.86.134", name: "wash.evlab.ch" }
   - { ip: "172.16.86.135", name: "robot.evlab.ch" }
   - { ip: "172.16.86.136", name: "resmed.evlab.ch" }
+  - { ip: "172.16.86.109", name: "samsung-fred.evlab.ch" }
 
 # === DHCP Reservations ===
 dhcp_reservations:
