@@ -594,7 +594,7 @@
   become: true
   tags: [technitium, dhcp]
   tasks:
-    - name: Configure DHCP scope
+    - name: Configure DHCP dynamic scope
       ansible.builtin.uri:
         url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/set"
         method: POST
@@ -614,6 +614,39 @@
       failed_when: false
       no_log: true
 
+    # Static scope: covers .2-.99 with full exclusion — no dynamic offers,
+    # only serves reserved leases. Both servers hold it for HA.
+    - name: Configure DHCP static-reservation scope (.2-.99)
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/set"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "static-lan"
+          startingAddress: "172.16.86.2"
+          endingAddress: "172.16.86.99"
+          subnetMask: "255.255.255.0"
+          routerAddress: "{{ gateway }}"
+          dnsServers: "{{ dns_primary_ip }},{{ dns_secondary_ip }}"
+          domainName: "{{ domain }}"
+          leaseTimeDays: "7"
+          dnsSuffix: "{{ domain }}"
+          exclusions: "[{\"startingAddress\":\"172.16.86.2\",\"endingAddress\":\"172.16.86.99\"}]"
+      failed_when: false
+      no_log: true
+
+    - name: Enable DHCP static-reservation scope
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/enable"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "static-lan"
+      failed_when: false
+      no_log: true
+
     - name: Enable DHCP scope
       ansible.builtin.uri:
         url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/enable"
@@ -625,7 +658,7 @@
       failed_when: false
       no_log: true
 
-    - name: Add DHCP reservations (both servers for HA)
+    - name: Add DHCP reservations (within scope range only)
       ansible.builtin.uri:
         url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/addReservedLease"
         method: POST
@@ -639,6 +672,27 @@
       loop: "{{ dhcp_reservations }}"
       loop_control:
         label: "{{ item.name }} ({{ item.ip }})"
+      when: >-
+        (item.ip.split('.')[-1] | int) >= (dhcp_range_start.split('.')[-1] | int) and
+        (item.ip.split('.')[-1] | int) <= (dhcp_range_end.split('.')[-1] | int)
+      failed_when: false
+      no_log: true
+
+    - name: Add DHCP reservations to static-lan scope (.2-.99)
+      ansible.builtin.uri:
+        url: "http://localhost:{{ technitium_web_port }}/api/dhcp/scopes/addReservedLease"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          token: "{{ technitium_token }}"
+          name: "static-lan"
+          hardwareAddress: "{{ item.mac }}"
+          ipAddress: "{{ item.ip }}"
+          hostName: "{{ item.name | regex_replace(' ', '-') | lower }}"
+      loop: "{{ dhcp_reservations }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
+      when: (item.ip.split('.')[-1] | int) <= 99
       failed_when: false
       no_log: true
 

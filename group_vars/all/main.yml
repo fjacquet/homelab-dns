@@ -47,6 +47,15 @@ dns_a_records:
   - { name: "vm-automation.evlab.ch", ip: "172.16.86.23" }
   - { name: "tvbox.evlab.ch", ip: "172.16.86.25" }
   - { name: "roborock.evlab.ch", ip: "172.16.86.42" }
+  - { name: "sonos1.evlab.ch", ip: "172.16.86.43" }
+  - { name: "sonos-chambre.evlab.ch", ip: "172.16.86.44" }
+  - { name: "sonos-salon.evlab.ch", ip: "172.16.86.45" }
+  - { name: "dryer.evlab.ch", ip: "172.16.86.129" }
+  - { name: "jura.evlab.ch", ip: "172.16.86.130" }
+  - { name: "uwave.evlab.ch", ip: "172.16.86.133" }
+  - { name: "wash.evlab.ch", ip: "172.16.86.134" }
+  - { name: "robot.evlab.ch", ip: "172.16.86.135" }
+  - { name: "resmed.evlab.ch", ip: "172.16.86.136" }
 
 dns_ptr_records:
   - { ip: "172.16.86.1", name: "gateway.evlab.ch" }
@@ -65,6 +74,15 @@ dns_ptr_records:
   - { ip: "172.16.86.23", name: "vm-automation.evlab.ch" }
   - { ip: "172.16.86.25", name: "tvbox.evlab.ch" }
   - { ip: "172.16.86.42", name: "roborock.evlab.ch" }
+  - { ip: "172.16.86.43", name: "sonos1.evlab.ch" }
+  - { ip: "172.16.86.44", name: "sonos-chambre.evlab.ch" }
+  - { ip: "172.16.86.45", name: "sonos-salon.evlab.ch" }
+  - { ip: "172.16.86.129", name: "dryer.evlab.ch" }
+  - { ip: "172.16.86.130", name: "jura.evlab.ch" }
+  - { ip: "172.16.86.133", name: "uwave.evlab.ch" }
+  - { ip: "172.16.86.134", name: "wash.evlab.ch" }
+  - { ip: "172.16.86.135", name: "robot.evlab.ch" }
+  - { ip: "172.16.86.136", name: "resmed.evlab.ch" }
 
 # === DHCP Reservations ===
 dhcp_reservations:
@@ -97,6 +115,9 @@ dhcp_reservations:
   - { mac: "8C:CE:4E:57:61:C7", ip: "172.16.86.134", name: "Wash plug" }
   - { mac: "78:42:1C:F2:76:C3", ip: "172.16.86.135", name: "Robot plug" }
   - { mac: "78:42:1C:F2:6F:3D", ip: "172.16.86.136", name: "Resmed plug" }
+  - { mac: "E6:55:E3:2E:8A:67", ip: "172.16.86.191", name: "iPad" }
+  - { mac: "E6:31:B2:D6:51:C2", ip: "172.16.86.192", name: "iPad-de-Florence" }
+  - { mac: "1A:FD:29:87:5F:B8", ip: "172.16.86.193", name: "iPad-1" }
 
 # === Traefik + HA (keepalived) ===
 traefik_image: traefik:latest
