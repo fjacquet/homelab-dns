@@ -819,3 +819,67 @@
       ansible.builtin.file:
         path: /tmp/check-mk-agent.deb
         state: absent
+
+# #############################################################################
+# Phase 5 — Register hosts in Checkmk via REST API
+# #############################################################################
+- name: "MC Services — Register hosts in Checkmk"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [mc_checkmk_hosts]
+  vars:
+    checkmk_url: "http://172.16.86.22/cmk/api/1.0"
+    checkmk_auth: "Bearer cmkadmin {{ vault_checkmk_password }}"
+  tasks:
+    - name: Register each host in Checkmk
+      ansible.builtin.uri:
+        url: "{{ checkmk_url }}/domain-types/host_config/collections/all"
+        method: POST
+        headers:
+          Authorization: "{{ checkmk_auth }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          host_name: "{{ item.name }}"
+          folder: "/"
+          attributes:
+            ipaddress: "{{ item.ip }}"
+        status_code: [200, 201, 400]
+        failed_when: false
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
+      no_log: true
+
+    - name: Discover services on each host
+      ansible.builtin.uri:
+        url: "{{ checkmk_url }}/domain-types/service_discovery_run/collections/all"
+        method: POST
+        headers:
+          Authorization: "{{ checkmk_auth }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          host_name: "{{ item.name }}"
+          mode: "refresh"
+        status_code: [200, 201, 302]
+        failed_when: false
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Activate Checkmk configuration changes
+      ansible.builtin.uri:
+        url: "{{ checkmk_url }}/domain-types/activation_run/actions/activate-changes/invoke"
+        method: POST
+        headers:
+          Authorization: "{{ checkmk_auth }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          force_foreign_changes: true
+        status_code: [200, 201, 302, 409]
+        failed_when: false
+      no_log: true

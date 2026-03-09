@@ -193,3 +193,15 @@ docker_base_dir: /opt/docker
 prometheus_dir: /opt/monitoring/prometheus
 grafana_dir: /opt/monitoring/grafana
 checkmk_dir: /opt/monitoring/checkmk
+
+# === Checkmk monitored hosts ===
+checkmk_hosts:
+  - { name: "infra1", ip: "172.16.86.11" }
+  - { name: "infra2", ip: "172.16.86.12" }
+  - { name: "mc-node-01", ip: "172.16.86.13" }
+  - { name: "mc-node-02", ip: "172.16.86.14" }
+  - { name: "mc-node-03", ip: "172.16.86.15" }
+  - { name: "vm-monitoring", ip: "172.16.86.21" }
+  - { name: "vm-checkmk", ip: "172.16.86.22" }
+  - { name: "vm-automation", ip: "172.16.86.23" }
+  - { name: "nas", ip: "172.16.86.10" }
