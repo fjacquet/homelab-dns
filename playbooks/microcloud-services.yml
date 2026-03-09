@@ -794,51 +794,28 @@
       register: agent_download
       ignore_errors: true
 
-    - name: Install Checkmk agent (if downloaded)
+    - name: Install Checkmk agent (if downloaded via HTTPS)
       ansible.builtin.apt:
         deb: /tmp/check-mk-agent.deb
       when: agent_download is not failed
 
-    - name: Fallback — install agent via apt
+    # mc-node-02 cannot reach vm-checkmk over the network (macvlan host-to-VM limitation).
+    # Use lxc file pull to copy the .deb directly from the VM via the LXD API instead.
+    - name: Fallback — pull agent from vm-checkmk via LXD (macvlan workaround for mc-node-02)
       when: agent_download is failed
       block:
-        - name: Install xinetd
+        - name: Pull agent .deb from vm-checkmk via LXD API
+          ansible.builtin.command: >-
+            lxc file pull
+            vm-checkmk/omd/sites/cmk/share/check_mk/agents/check-mk-agent_2.3.0p30-1_all.deb
+            /tmp/check-mk-agent.deb
+          changed_when: true
+
+        - name: Install pulled agent .deb
           ansible.builtin.apt:
-            name: xinetd
-            state: present
+            deb: /tmp/check-mk-agent.deb
 
-        - name: Download agent script
-          ansible.builtin.get_url:
-            url: "https://checkmk.{{ domain }}/cmk/check_mk/agents/check_mk_agent.linux"
-            dest: /usr/local/bin/check_mk_agent
-            mode: "0755"
-
-        - name: Deploy xinetd config for check_mk
-          ansible.builtin.copy:
-            dest: /etc/xinetd.d/check_mk
-            mode: "0644"
-            content: |
-              service check_mk
-              {
-                  type           = UNLISTED
-                  port           = 6556
-                  socket_type    = stream
-                  protocol       = tcp
-                  wait           = no
-                  user           = root
-                  server         = /usr/local/bin/check_mk_agent
-                  only_from      = 172.16.86.22
-                  disable        = no
-              }
-          notify: Restart xinetd
-
-    - name: Clean up
+    - name: Clean up agent .deb
       ansible.builtin.file:
         path: /tmp/check-mk-agent.deb
         state: absent
-
-  handlers:
-    - name: Restart xinetd
-      ansible.builtin.systemd:
-        name: xinetd
-        state: restarted
