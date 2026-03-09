@@ -93,12 +93,14 @@
       block:
         - name: Create empty profile
           ansible.builtin.command: lxc profile create bridged-lan
+          changed_when: true
 
         - name: Configure macvlan NIC on physical interface
           ansible.builtin.command: >-
             lxc profile device add bridged-lan eth0 nic
             nictype=macvlan
             parent={{ lan_interface }}
+          changed_when: true
 
 # #############################################################################
 # Phase 0d — LXD Web UI
