@@ -1,0 +1,792 @@
+---
+# #############################################################################
+# MicroCloud — Deploy services as LXD VMs (run AFTER microcloud init)
+# VMs get real LAN IPs via macvlan on enp0s31f6 — no proxy devices needed.
+# Services installed natively via apt (no Docker). VM disks on NFS datastore.
+# #############################################################################
+
+# #############################################################################
+# Phase 0a — Clean up old LXD containers
+# #############################################################################
+- name: "MC Services — Clean up old containers"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_cleanup]
+  tasks:
+    - name: Delete existing LXD instances (containers and VMs, if any)
+      ansible.builtin.command: "lxc delete {{ item }} --force"
+      loop:
+        - monitoring
+        - checkmk
+        - automation
+        - vm-monitoring
+        - vm-checkmk
+        - vm-automation
+      failed_when: false
+      changed_when: true
+
+# #############################################################################
+# Phase 0b — Storage pool (dir on NFS)
+# VMs use qcow2 images so no xattr/btrfs needed — dir driver on NFS works.
+# Synology NFS must have "No mapping" (no_root_squash) for LXD root access.
+# #############################################################################
+- name: "MC Services — Configure LXD storage pool (dir on NFS)"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_lxd_storage, mc_lxd_ui]
+  tasks:
+    - name: Create per-node VM storage directories on NFS
+      ansible.builtin.file:
+        path: "/srv/datastore/lxd-vms/{{ hostvars[item]['mc_hostname'] }}"
+        state: directory
+        mode: "0711"
+      loop: "{{ groups['microcloud'] }}"
+      loop_control:
+        label: "{{ hostvars[item]['mc_hostname'] }}"
+
+    - name: Check if datastore pool exists
+      ansible.builtin.command: lxc storage show datastore
+      register: storage_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create clustered dir storage pool on NFS
+      when: storage_check.rc != 0
+      block:
+        - name: Create storage pool on each cluster member
+          ansible.builtin.command: >-
+            lxc storage create datastore dir
+            --target {{ hostvars[item]['mc_hostname'] }}
+            source=/srv/datastore/lxd-vms/{{ hostvars[item]['mc_hostname'] }}
+          loop: "{{ groups['microcloud'] }}"
+          loop_control:
+            label: "{{ hostvars[item]['mc_hostname'] }}"
+
+        - name: Finalize storage pool
+          ansible.builtin.command: lxc storage create datastore dir
+
+    - name: Ensure default profile has root disk
+      ansible.builtin.command: lxc profile device add default root disk path=/ pool=datastore
+      register: profile_root
+      failed_when: false
+      changed_when: "'Device root added' in profile_root.stdout"
+
+# #############################################################################
+# Phase 0c — Create macvlan profile for VMs (real LAN IPs)
+# VMs get IPs on 172.16.86.0/24 via macvlan on enp0s31f6
+# #############################################################################
+- name: "MC Services — Create macvlan network profile"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_lxd_storage, mc_lxd_ui, mc_network]
+  tasks:
+    - name: Check if bridged-lan profile exists
+      ansible.builtin.command: lxc profile show bridged-lan
+      register: profile_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create bridged-lan profile
+      when: profile_check.rc != 0
+      block:
+        - name: Create empty profile
+          ansible.builtin.command: lxc profile create bridged-lan
+
+        - name: Configure macvlan NIC on physical interface
+          ansible.builtin.command: >-
+            lxc profile device add bridged-lan eth0 nic
+            nictype=macvlan
+            parent={{ lan_interface }}
+
+# #############################################################################
+# Phase 0d — LXD Web UI
+# #############################################################################
+- name: "MC Services — Enable LXD Web UI"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_lxd_ui]
+  tasks:
+    - name: Expose LXD API on network for Web UI
+      ansible.builtin.command: lxc config set core.https_address {{ ansible_host }}:8443
+      changed_when: true
+
+    - name: Generate LXD trust token for UI access
+      ansible.builtin.command: lxc config trust add --name ui-admin
+      register: lxd_trust_token
+      changed_when: true
+
+    - name: Display LXD UI access info
+      ansible.builtin.debug:
+        msg: |
+          LXD Web UI available at: https://lxd.evlab.ch
+          Trust token (use in browser): {{ lxd_trust_token.stdout }}
+
+# #############################################################################
+# Phase 1 — Monitoring VM (Prometheus + Grafana) — 172.16.86.21
+# #############################################################################
+- name: "MC Services — Monitoring VM (Prometheus + Grafana)"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_prometheus, mc_grafana, mc_monitoring]
+  vars:
+    vm_name: vm-monitoring
+    vm_ip: 172.16.86.21
+    vm_target: mc-node-01
+  tasks:
+    - name: Check if VM exists
+      ansible.builtin.command: "lxc info {{ vm_name }}"
+      register: vm_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Create monitoring VM on {{ vm_target }}
+      when: vm_exists.rc != 0
+      block:
+        - name: Launch VM directly on target node
+          ansible.builtin.command: >-
+            lxc launch ubuntu:24.04 {{ vm_name }}
+            --vm
+            --target {{ vm_target }}
+            --profile default
+            --profile bridged-lan
+            -c limits.cpu=2
+            -c limits.memory=4GB
+
+        - name: Wait for VM agent to be ready
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
+          retries: 30
+          delay: 10
+          register: vm_agent
+          until: vm_agent.rc == 0
+
+        - name: Remove cloud-init default netplan (disables DHCP)
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+          changed_when: true
+
+        - name: Configure static IP via netplan
+          ansible.builtin.shell: |
+            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+            network:
+              version: 2
+              ethernets:
+                enp5s0:
+                  dhcp4: false
+                  addresses:
+                    - {{ vm_ip }}/24
+                  routes:
+                    - to: default
+                      via: {{ gateway }}
+                  nameservers:
+                    addresses:
+                      - {{ dns_primary_ip }}
+                      - {{ dns_secondary_ip }}
+            NETPLAN
+          changed_when: true
+
+        - name: Apply netplan
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
+      changed_when: false
+      timeout: 300
+
+    - name: Install base packages
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
+        python3 gpg apt-transport-https software-properties-common curl prometheus"
+      changed_when: true
+
+    # --- Prometheus config ---
+    - name: Deploy Prometheus config
+      ansible.builtin.shell: |
+        cat <<'PROM_EOF' | lxc exec {{ vm_name }} -- tee /etc/prometheus/prometheus.yml
+        global:
+          scrape_interval: 15s
+          evaluation_interval: 15s
+
+        scrape_configs:
+          # --- Infrastructure nodes (infra1, infra2) ---
+          - job_name: node-infra
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:{{ node_exporter_port }}
+                  - {{ dns_secondary_ip }}:{{ node_exporter_port }}
+                labels:
+                  role: infra
+
+          # --- MicroCloud nodes (mc-node-01/.13 excluded: macvlan host-to-VM unreachable) ---
+          - job_name: node-microcloud
+            static_configs:
+              - targets:
+                  - {{ hostvars[groups['microcloud'][1]]['ansible_host'] }}:{{ node_exporter_port }}
+                  - {{ hostvars[groups['microcloud'][2]]['ansible_host'] }}:{{ node_exporter_port }}
+                labels:
+                  role: microcloud
+
+          # --- Docker containers (cAdvisor) ---
+          - job_name: cadvisor
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:{{ cadvisor_port }}
+                  - {{ dns_secondary_ip }}:{{ cadvisor_port }}
+
+          # --- Traefik (HTTP API port 8080, iptables allows vm-monitoring) ---
+          - job_name: traefik
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:8080
+                  - {{ dns_secondary_ip }}:8080
+
+          # --- WireGuard (infra2) ---
+          - job_name: wireguard
+            static_configs:
+              - targets:
+                  - {{ dns_secondary_ip }}:{{ wireguard_exporter_port }}
+
+          # --- Prometheus self ---
+          - job_name: prometheus
+            static_configs:
+              - targets:
+                  - localhost:9090
+        PROM_EOF
+      changed_when: true
+
+    - name: Configure Prometheus retention
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time=30d --web.enable-lifecycle\"/' /etc/default/prometheus"
+      changed_when: true
+
+    - name: Enable and restart Prometheus
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl enable --now prometheus && lxc exec {{ vm_name }} -- systemctl restart prometheus"
+      changed_when: true
+
+    # --- Grafana ---
+    - name: Install Grafana APT key and repo
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "curl -fsSL https://apt.grafana.com/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/grafana-archive-keyring.gpg
+        && echo 'deb [signed-by=/usr/share/keyrings/grafana-archive-keyring.gpg] https://apt.grafana.com stable main' > /etc/apt/sources.list.d/grafana.list"
+      changed_when: true
+
+    - name: Install Grafana
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y grafana"
+      changed_when: true
+
+    - name: Configure Grafana settings
+      ansible.builtin.shell: |
+        lxc exec {{ vm_name }} -- bash -c "
+          sed -i 's/^;admin_user =.*/admin_user = admin/' /etc/grafana/grafana.ini
+          sed -i 's/^;admin_password =.*/admin_password = {{ vault_grafana_password }}/' /etc/grafana/grafana.ini
+          sed -i 's/^;allow_sign_up =.*/allow_sign_up = false/' /etc/grafana/grafana.ini
+          sed -i 's|^;root_url =.*|root_url = https://grafana.{{ domain }}|' /etc/grafana/grafana.ini
+        "
+      changed_when: true
+      no_log: true
+
+    - name: Deploy Grafana datasource provisioning
+      ansible.builtin.shell: |
+        cat <<'GRAF_DS' | lxc exec {{ vm_name }} -- tee /etc/grafana/provisioning/datasources/prometheus.yml
+        apiVersion: 1
+        datasources:
+          - name: Prometheus
+            type: prometheus
+            access: proxy
+            url: http://localhost:9090
+            isDefault: true
+            editable: false
+        GRAF_DS
+      changed_when: true
+
+    - name: Deploy Grafana dashboard provisioning
+      ansible.builtin.shell: |
+        cat <<'GRAF_DASH' | lxc exec {{ vm_name }} -- tee /etc/grafana/provisioning/dashboards/default.yml
+        apiVersion: 1
+        providers:
+          - name: default
+            orgId: 1
+            folder: ''
+            type: file
+            disableDeletion: false
+            updateIntervalSeconds: 30
+            options:
+              path: /var/lib/grafana/dashboards
+              foldersFromFilesStructure: false
+        GRAF_DASH
+      changed_when: true
+
+    - name: Enable and start Grafana
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl enable --now grafana-server"
+      changed_when: true
+
+    - name: Capture VM MAC address for DHCP reservation
+      ansible.builtin.command: "lxc config get {{ vm_name }} volatile.eth0.hwaddr"
+      register: vm_monitoring_mac
+      changed_when: false
+
+    - name: Display access info
+      ansible.builtin.debug:
+        msg: |
+          Monitoring VM '{{ vm_name }}' deployed on {{ mc_hostname }}.
+          VM IP:      {{ vm_ip }}
+          VM MAC:     {{ vm_monitoring_mac.stdout }}
+
+          Prometheus: http://{{ vm_ip }}:9090
+          Grafana:    http://{{ vm_ip }}:3000 (admin / <see vault>)
+
+          Recommended Grafana dashboards to import:
+            - Node Exporter Full: ID 1860
+            - Docker / cAdvisor:  ID 193
+            - Traefik:            ID 17346
+
+          Add DHCP reservation with MAC: {{ vm_monitoring_mac.stdout }}
+
+# #############################################################################
+# Phase 2 — Checkmk VM — 172.16.86.22
+# #############################################################################
+- name: "MC Services — Checkmk VM"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_checkmk]
+  vars:
+    vm_name: vm-checkmk
+    vm_ip: 172.16.86.22
+    vm_target: mc-node-02
+  tasks:
+    - name: Check if VM exists
+      ansible.builtin.command: "lxc info {{ vm_name }}"
+      register: vm_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Create Checkmk VM on {{ vm_target }}
+      when: vm_exists.rc != 0
+      block:
+        - name: Launch VM directly on target node
+          ansible.builtin.command: >-
+            lxc launch ubuntu:24.04 {{ vm_name }}
+            --vm
+            --target {{ vm_target }}
+            --profile default
+            --profile bridged-lan
+            -c limits.cpu=2
+            -c limits.memory=4GB
+
+        - name: Wait for VM agent to be ready
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
+          retries: 30
+          delay: 10
+          register: vm_agent
+          until: vm_agent.rc == 0
+
+        - name: Remove cloud-init default netplan (disables DHCP)
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+          changed_when: true
+
+        - name: Configure static IP via netplan
+          ansible.builtin.shell: |
+            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+            network:
+              version: 2
+              ethernets:
+                enp5s0:
+                  dhcp4: false
+                  addresses:
+                    - {{ vm_ip }}/24
+                  routes:
+                    - to: default
+                      via: {{ gateway }}
+                  nameservers:
+                    addresses:
+                      - {{ dns_primary_ip }}
+                      - {{ dns_secondary_ip }}
+            NETPLAN
+          changed_when: true
+
+        - name: Apply netplan
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
+      changed_when: false
+      timeout: 300
+
+    - name: Install prerequisites
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3 wget"
+      changed_when: true
+
+    - name: Download Checkmk Raw Edition
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "test -f /tmp/checkmk.deb ||
+        wget -q 'https://download.checkmk.com/checkmk/2.3.0p30/check-mk-raw-2.3.0p30_0.noble_amd64.deb' -O /tmp/checkmk.deb"
+      changed_when: true
+
+    - name: Install Checkmk package
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "DEBIAN_FRONTEND=noninteractive
+        apt-get install -y /tmp/checkmk.deb || (apt-get install -f -y && apt-get install -y /tmp/checkmk.deb)"
+      changed_when: true
+
+    - name: Create Checkmk site
+      ansible.builtin.shell: |
+        lxc exec {{ vm_name }} -- bash -c '
+          if ! omd sites | grep -q cmk; then
+            omd create cmk
+            htpasswd -b /omd/sites/cmk/etc/htpasswd cmkadmin "{{ vault_checkmk_password }}"
+            omd start cmk
+          else
+            omd start cmk || true
+          fi
+        '
+      changed_when: true
+      no_log: true
+
+    - name: Disable login lock during initial setup
+      ansible.builtin.shell: |
+        lxc exec {{ vm_name }} -- bash -c '
+          WATO_DIR=/omd/sites/cmk/etc/check_mk/multisite.d/wato
+          mkdir -p "$WATO_DIR"
+          if ! grep -q lock_on_logon_failures "$WATO_DIR/global.mk" 2>/dev/null; then
+            echo "lock_on_logon_failures = 0" >> "$WATO_DIR/global.mk"
+            chown cmk:cmk "$WATO_DIR/global.mk"
+          fi
+          echo 0 > /omd/sites/cmk/var/check_mk/web/cmkadmin/num_failed_logins.mk
+          chown cmk:cmk /omd/sites/cmk/var/check_mk/web/cmkadmin/num_failed_logins.mk
+        '
+      changed_when: true
+
+    - name: Capture VM MAC address for DHCP reservation
+      ansible.builtin.command: "lxc config get {{ vm_name }} volatile.eth0.hwaddr"
+      register: vm_checkmk_mac
+      changed_when: false
+
+    - name: Wait for Checkmk to be ready
+      ansible.builtin.uri:
+        url: "http://{{ vm_ip }}/cmk/check_mk/login.py"
+        status_code: 200
+      register: cmk_ready
+      retries: 30
+      delay: 5
+      until: cmk_ready.status == 200
+
+    - name: Display Checkmk access info
+      ansible.builtin.debug:
+        msg: |
+          Checkmk VM '{{ vm_name }}' deployed on {{ mc_hostname }}.
+          VM IP:  {{ vm_ip }}
+          VM MAC: {{ vm_checkmk_mac.stdout }}
+
+          URL:      https://checkmk.{{ domain }}/cmk/
+          User:     cmkadmin
+          Password: <see vault>
+
+          Add DHCP reservation with MAC: {{ vm_checkmk_mac.stdout }}
+
+# #############################################################################
+# Phase 3 — Automation VM (n8n + ansible-webhook) — 172.16.86.23
+# All services native (NO Docker) — n8n via Node.js, webhook via Python/pip
+# #############################################################################
+- name: "MC Services — Automation VM (n8n + ansible-webhook)"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_automation]
+  vars:
+    vm_name: vm-automation
+    vm_ip: 172.16.86.23
+    vm_target: mc-node-03
+  tasks:
+    - name: Check if VM exists
+      ansible.builtin.command: "lxc info {{ vm_name }}"
+      register: vm_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Create automation VM on {{ vm_target }}
+      when: vm_exists.rc != 0
+      block:
+        - name: Launch VM directly on target node
+          ansible.builtin.command: >-
+            lxc launch ubuntu:24.04 {{ vm_name }}
+            --vm
+            --target {{ vm_target }}
+            --profile default
+            --profile bridged-lan
+            -c limits.cpu=2
+            -c limits.memory=4GB
+
+        - name: Wait for VM agent to be ready
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- true"
+          retries: 30
+          delay: 10
+          register: vm_agent
+          until: vm_agent.rc == 0
+
+        - name: Remove cloud-init default netplan (disables DHCP)
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+          changed_when: true
+
+        - name: Configure static IP via netplan
+          ansible.builtin.shell: |
+            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+            network:
+              version: 2
+              ethernets:
+                enp5s0:
+                  dhcp4: false
+                  addresses:
+                    - {{ vm_ip }}/24
+                  routes:
+                    - to: default
+                      via: {{ gateway }}
+                  nameservers:
+                    addresses:
+                      - {{ dns_primary_ip }}
+                      - {{ dns_secondary_ip }}
+            NETPLAN
+          changed_when: true
+
+        - name: Apply netplan
+          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
+      changed_when: false
+      timeout: 300
+
+    # --- n8n (native Node.js, no Docker) ---
+    - name: Install Node.js 20 LTS
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "
+          if ! command -v node &>/dev/null; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+          fi
+        "
+      changed_when: true
+
+    - name: Install n8n globally
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- npm install -g n8n
+      changed_when: true
+
+    - name: Create n8n system user and data directory
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "
+          id n8n &>/dev/null || useradd -r -m -d /var/lib/n8n -s /usr/sbin/nologin n8n
+          mkdir -p /var/lib/n8n
+          chown n8n:n8n /var/lib/n8n
+        "
+      changed_when: true
+
+    - name: Deploy n8n environment file
+      ansible.builtin.shell: |
+        cat <<'N8N_ENV' | lxc exec {{ vm_name }} -- tee /etc/default/n8n
+        N8N_HOST=0.0.0.0
+        N8N_PORT=5678
+        N8N_PROTOCOL=https
+        WEBHOOK_URL=https://n8n.{{ domain }}/
+        GENERIC_TIMEZONE=Europe/Zurich
+        N8N_ENCRYPTION_KEY={{ n8n_encryption_key }}
+        N8N_USER_FOLDER=/var/lib/n8n
+        N8N_ENV=
+        N8N_ENV
+      changed_when: true
+      no_log: true
+
+    - name: Deploy n8n systemd service
+      ansible.builtin.shell: |
+        cat <<'N8N_SVC' | lxc exec {{ vm_name }} -- tee /etc/systemd/system/n8n.service
+        [Unit]
+        Description=n8n workflow automation
+        After=network.target
+
+        [Service]
+        Type=simple
+        User=n8n
+        EnvironmentFile=/etc/default/n8n
+        ExecStart=/usr/bin/n8n start
+        Restart=on-failure
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        N8N_SVC
+      changed_when: true
+
+    - name: Enable and start n8n
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- bash -c "systemctl daemon-reload && systemctl enable --now n8n"
+      changed_when: true
+
+    # --- ansible-webhook (native Python, no Docker) ---
+    - name: Install Python dependencies for ansible-webhook
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y
+        python3 git ansible curl && curl -LsSf https://astral.sh/uv/install.sh | sh"
+      changed_when: true
+
+    - name: Clone homelab-dns repo inside VM
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "
+          if [ ! -d /opt/homelab-dns ]; then
+            git clone https://github.com/fjacquet/homelab-dns.git /opt/homelab-dns
+          else
+            cd /opt/homelab-dns && git pull
+          fi
+        "
+      changed_when: true
+
+    - name: Create venv and install ansible-webhook dependencies via uv
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "~/.local/bin/uv venv /opt/webhook-venv && ~/.local/bin/uv pip install --python /opt/webhook-venv/bin/python fastapi uvicorn pydantic"
+      changed_when: true
+
+    - name: Deploy ansible-webhook environment file
+      ansible.builtin.shell: |
+        cat <<'WH_ENV' | lxc exec {{ vm_name }} -- tee /etc/default/ansible-webhook
+        WEBHOOK_API_KEY={{ ansible_webhook_api_key }}
+        PLAYBOOKS_DIR=/opt/homelab-dns
+        LOG_TAIL=200
+        WH_ENV
+      changed_when: true
+      no_log: true
+
+    - name: Deploy ansible-webhook systemd service
+      ansible.builtin.shell: |
+        cat <<'WH_SVC' | lxc exec {{ vm_name }} -- tee /etc/systemd/system/ansible-webhook.service
+        [Unit]
+        Description=Ansible Webhook Engine
+        After=network.target
+
+        [Service]
+        Type=simple
+        User=root
+        EnvironmentFile=/etc/default/ansible-webhook
+        WorkingDirectory=/opt/homelab-dns/ansible-webhook
+        ExecStart=/opt/webhook-venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+        Restart=on-failure
+        RestartSec=5
+
+        [Install]
+        WantedBy=multi-user.target
+        WH_SVC
+      changed_when: true
+
+    - name: Create secrets directory
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- mkdir -p /opt/secrets"
+      changed_when: true
+
+    - name: Enable and start ansible-webhook
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- bash -c "systemctl daemon-reload && systemctl enable --now ansible-webhook"
+      changed_when: true
+
+    - name: Wait for n8n to be ready
+      ansible.builtin.uri:
+        url: "http://{{ vm_ip }}:5678/healthz"
+        status_code: 200
+      register: n8n_ready
+      retries: 12
+      delay: 10
+      until: n8n_ready.status == 200
+
+    - name: Capture VM MAC address for DHCP reservation
+      ansible.builtin.command: "lxc config get {{ vm_name }} volatile.eth0.hwaddr"
+      register: vm_automation_mac
+      changed_when: false
+
+    - name: Display automation access info
+      ansible.builtin.debug:
+        msg: |
+          Automation VM '{{ vm_name }}' deployed on {{ mc_hostname }}.
+          VM IP:  {{ vm_ip }}
+          VM MAC: {{ vm_automation_mac.stdout }}
+
+          n8n:             https://n8n.{{ domain }}
+          ansible-webhook: https://ansible.{{ domain }}
+          Swagger UI:      https://ansible.{{ domain }}/docs
+
+          Secrets must be placed inside the VM:
+            lxc exec {{ vm_name }} -- mkdir -p /opt/secrets
+            lxc file push ~/.ssh/id_rsa {{ vm_name }}/opt/secrets/id_rsa
+            lxc file push vault_pass {{ vm_name }}/opt/secrets/vault_pass
+
+          Add DHCP reservation with MAC: {{ vm_automation_mac.stdout }}
+
+# #############################################################################
+# Phase 4 — Checkmk agents on all nodes
+# #############################################################################
+- name: "MC Services — Checkmk agents on all nodes"
+  hosts: dns_servers:microcloud
+  become: true
+  tags: [mc_checkmk_agent]
+  tasks:
+    - name: Download Checkmk agent from server
+      ansible.builtin.get_url:
+        url: "https://checkmk.{{ domain }}/cmk/check_mk/agents/check-mk-agent_2.3.0p30-1_all.deb"
+        dest: /tmp/check-mk-agent.deb
+        mode: "0644"
+      register: agent_download
+      ignore_errors: true
+
+    - name: Install Checkmk agent (if downloaded)
+      ansible.builtin.apt:
+        deb: /tmp/check-mk-agent.deb
+      when: agent_download is not failed
+
+    - name: Fallback — install agent via apt
+      when: agent_download is failed
+      block:
+        - name: Install xinetd
+          ansible.builtin.apt:
+            name: xinetd
+            state: present
+
+        - name: Download agent script
+          ansible.builtin.get_url:
+            url: "https://checkmk.{{ domain }}/cmk/check_mk/agents/check_mk_agent.linux"
+            dest: /usr/local/bin/check_mk_agent
+            mode: "0755"
+
+        - name: Deploy xinetd config for check_mk
+          ansible.builtin.copy:
+            dest: /etc/xinetd.d/check_mk
+            mode: "0644"
+            content: |
+              service check_mk
+              {
+                  type           = UNLISTED
+                  port           = 6556
+                  socket_type    = stream
+                  protocol       = tcp
+                  wait           = no
+                  user           = root
+                  server         = /usr/local/bin/check_mk_agent
+                  only_from      = 172.16.86.22
+                  disable        = no
+              }
+          notify: Restart xinetd
+
+    - name: Clean up
+      ansible.builtin.file:
+        path: /tmp/check-mk-agent.deb
+        state: absent
+
+  handlers:
+    - name: Restart xinetd
+      ansible.builtin.systemd:
+        name: xinetd
+        state: restarted

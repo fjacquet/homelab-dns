@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] — 2026-03-09
+
+### Added
+
+- **ADR-017**: LXD VMs replace LXD containers for MicroCloud services (own kernel, own IP, no UID remapping hacks)
+- **3 LXD VMs** with real LAN IPs via macvlan on `enp0s31f6`:
+  - `vm-monitoring` (172.16.86.21) — Prometheus + Grafana on mc-node-01
+  - `vm-checkmk` (172.16.86.22) — Checkmk Raw 2.3.0p30 on mc-node-02
+  - `vm-automation` (172.16.86.23) — n8n + ansible-webhook on mc-node-03
+- VMs distributed 1-per-node to avoid mc-node-01 saturation
+- Static IPs via netplan (`dhcp4: false`, cloud-init default netplan removed)
+- DHCP reservations: vm-monitoring `00:16:3e:44:b4:95`, vm-checkmk `00:16:3e:d3:10:8b`, vm-automation `00:16:3e:1d:18:d1`
+- DNS A records: `vm-monitoring.evlab.ch`, `vm-checkmk.evlab.ch`, `vm-automation.evlab.ch`
+- DNS PTR records for all 3 VMs
+- LXD storage pool: `dir` driver with per-node NFS subdirectories (`/srv/datastore/lxd-vms/<node>/`)
+- LXD profile `bridged-lan`: macvlan on `enp0s31f6` for direct LAN access
+- n8n installed natively: Node.js 20 LTS + `npm install -g n8n` + systemd service
+- ansible-webhook installed natively: uv venv at `/opt/webhook-venv` + uvicorn + systemd service
+
+### Changed
+
+- `microcloud-services.yml`: complete rewrite — containers → VMs, Docker → native packages
+- VM creation uses `lxc launch --vm --target` (direct placement, no migration)
+- `traefik_services` IPs updated to VM addresses (no more mc-node-01 port proxy):
+  - grafana `172.16.86.13:3000` → `172.16.86.21:3000`
+  - prometheus `172.16.86.13:9090` → `172.16.86.21:9090`
+  - checkmk `172.16.86.13:8090` → `172.16.86.22:80`
+  - n8n `172.16.86.13:5678` → `172.16.86.23:5678`
+  - ansible `172.16.86.13:8000` → `172.16.86.23:8000`
+- Checkmk agent download URL updated from `172.16.86.13:8090` to `172.16.86.22`
+
+### Removed
+
+- LXD containers `monitoring`, `checkmk`, `automation`
+- btrfs loop images (were needed for container xattrs; VMs use qcow2, no xattrs needed)
+- Docker inside LXD (all services now native)
+- `security.nesting`, `raw.idmap` hacks (root cause eliminated)
+
 ## [Unreleased]
 
 ### Added

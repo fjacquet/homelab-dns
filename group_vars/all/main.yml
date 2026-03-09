@@ -41,6 +41,9 @@ dns_a_records:
   - { name: "mc-node-01.evlab.ch", ip: "172.16.86.13" }
   - { name: "mc-node-02.evlab.ch", ip: "172.16.86.14" }
   - { name: "mc-node-03.evlab.ch", ip: "172.16.86.15" }
+  - { name: "vm-monitoring.evlab.ch", ip: "172.16.86.21" }
+  - { name: "vm-checkmk.evlab.ch", ip: "172.16.86.22" }
+  - { name: "vm-automation.evlab.ch", ip: "172.16.86.23" }
   - { name: "tvbox.evlab.ch", ip: "172.16.86.25" }
   - { name: "roborock.evlab.ch", ip: "172.16.86.42" }
 
@@ -56,6 +59,9 @@ dns_ptr_records:
   - { ip: "172.16.86.13", name: "mc-node-01.evlab.ch" }
   - { ip: "172.16.86.14", name: "mc-node-02.evlab.ch" }
   - { ip: "172.16.86.15", name: "mc-node-03.evlab.ch" }
+  - { ip: "172.16.86.21", name: "vm-monitoring.evlab.ch" }
+  - { ip: "172.16.86.22", name: "vm-checkmk.evlab.ch" }
+  - { ip: "172.16.86.23", name: "vm-automation.evlab.ch" }
   - { ip: "172.16.86.25", name: "tvbox.evlab.ch" }
   - { ip: "172.16.86.42", name: "roborock.evlab.ch" }
 
@@ -74,6 +80,10 @@ dhcp_reservations:
   - { mac: "64:00:6A:7D:86:F6", ip: "172.16.86.15", name: "ubuntu-server mc-node-03" }
   - { mac: "04:70:56:68:C5:9C", ip: "172.16.86.25", name: "TV-Box" }
   - { mac: "68:B9:C2:12:71:B9", ip: "172.16.86.32", name: "Unknown 68B9" }
+  # LXD VMs — MAC addresses TBD (capture with: lxc config get <vm> volatile.eth0.hwaddr)
+  - { mac: "00:16:3e:48:43:97", ip: "172.16.86.21", name: "vm-monitoring" }
+  - { mac: "00:16:3e:af:4c:9a", ip: "172.16.86.22", name: "vm-checkmk" }
+  - { mac: "00:16:3e:d5:5a:a6", ip: "172.16.86.23", name: "vm-automation" }
   - { mac: "B0:4A:39:6F:B3:E9", ip: "172.16.86.42", name: "Roborock vacuum" }
   - { mac: "38:42:0B:55:2B:16", ip: "172.16.86.43", name: "Sonos 1" }
   - { mac: "48:A6:B8:12:72:D0", ip: "172.16.86.44", name: "Sonos Chambre" }
@@ -96,20 +106,19 @@ traefik_acme_email: fred@ljf.ch
 
 traefik_services:
   - { name: homeassistant, host: "homeassistant.evlab.ch", url: "http://172.16.86.10:8123" }
-  - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.13:5678" }
   - { name: stash, host: "stash.evlab.ch", url: "http://172.16.86.10:9999" }
   - { name: pgadmin, host: "pgadmin.evlab.ch", url: "http://172.16.86.10:8888" }
   - { name: dns, host: "dns.evlab.ch", url: "http://localhost:5380" }
   - { name: dns2, host: "dns2.evlab.ch", url: "http://172.16.86.12:5380" }
   - { name: nas, host: "nas.evlab.ch", url: "http://172.16.86.10:5000" }
-  # MicroCloud services (mc-node-01)
-  - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.13:3000" }
-  - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.13:9090" }
-  - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.13:8090" }
-  # Ansible webhook engine (mc-node-01)
-  - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.13:8000" }
-  # LXD Web UI (mc-node-01)
-  - { name: lxd, host: "lxd.evlab.ch", url: "https://172.16.86.13:8443", skip_tls_verify: true }
+  # MicroCloud VMs (direct LAN IPs, no proxy devices)
+  - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.21:3000" }
+  - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.21:9090" }
+  - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.22:80" }
+  # Automation VM
+  - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.23:5678" }
+  - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.23:8000" }
+  # LXD Web UI — TLS passthrough, see traefik-services.yml.j2 tcp section
 
 # === n8n + Ansible Webhook (automation stack on mc-node-01) ===
 n8n_port: 5678

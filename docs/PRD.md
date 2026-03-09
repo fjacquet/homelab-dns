@@ -53,9 +53,12 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 |---------|------|----|
 | opt1 (infra1) | DNS primary, Traefik MASTER, keepalived, DDNS | 172.16.86.11 |
 | opt2 (infra2) | DNS secondary, Traefik BACKUP, keepalived, WireGuard | 172.16.86.12 |
-| opt3 (mc-node-01) | MicroCloud bootstrap, Prometheus, Grafana, Checkmk | 172.16.86.13 |
-| opt4 (mc-node-02) | MicroCloud compute | 172.16.86.14 |
-| opt5 (mc-node-03) | MicroCloud compute | 172.16.86.15 |
+| opt3 (mc-node-01) | MicroCloud bootstrap, vm-monitoring (Prometheus + Grafana) | 172.16.86.13 |
+| opt4 (mc-node-02) | MicroCloud compute, vm-checkmk (Checkmk) | 172.16.86.14 |
+| opt5 (mc-node-03) | MicroCloud compute, vm-automation (n8n + webhook) | 172.16.86.15 |
+| vm-monitoring | LXD VM — Prometheus + Grafana | 172.16.86.21 |
+| vm-checkmk | LXD VM — Checkmk Raw | 172.16.86.22 |
+| vm-automation | LXD VM — n8n + ansible-webhook | 172.16.86.23 |
 | Synology DS923+ | NAS, application containers | 172.16.86.10 |
 | VIP (keepalived) | Traefik HA floating IP | 172.16.86.20 |
 
@@ -76,7 +79,7 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 | VPN | WireGuard | Native (wg-quick + systemd) |
 | DHCP | Technitium built-in | Docker (same container) |
 | Certificates | Let's Encrypt wildcard (DNS-01 via Infomaniak) | Traefik ACME |
-| Monitoring | Prometheus + Grafana + Checkmk | Docker (MicroCloud) |
+| Monitoring | Prometheus + Grafana + Checkmk | Native apt/npm (LXD VMs) |
 | Compute | MicroCloud (LXD + OVN) | Snap |
 | Storage | NFS from Synology (no Ceph) | Native mount |
 
@@ -202,9 +205,11 @@ Dedicate 2 Optiplex Micro to network infrastructure (DNS, HTTPS, VPN) and 3 to M
 | NAS (DSM) | nas.evlab.ch | 172.16.86.10:5000 | Synology |
 | DNS (infra1) | dns.evlab.ch | localhost:5380 | infra1 |
 | DNS (infra2) | dns2.evlab.ch | 172.16.86.12:5380 | infra2 |
-| Grafana | grafana.evlab.ch | 172.16.86.13:3000 | mc-node-01 |
-| Prometheus | prometheus.evlab.ch | 172.16.86.13:9090 | mc-node-01 |
-| Checkmk | checkmk.evlab.ch | 172.16.86.13:8090 | mc-node-01 |
+| Grafana | grafana.evlab.ch | 172.16.86.21:3000 | vm-monitoring |
+| Prometheus | prometheus.evlab.ch | 172.16.86.21:9090 | vm-monitoring |
+| Checkmk | checkmk.evlab.ch | 172.16.86.22:80 | vm-checkmk |
+| n8n | n8n.evlab.ch | 172.16.86.23:5678 | vm-automation |
+| Ansible Webhook | ansible.evlab.ch | 172.16.86.23:8000 | vm-automation |
 
 ---
 

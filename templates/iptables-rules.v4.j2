@@ -17,8 +17,9 @@
 -A INPUT -p tcp --dport 5380 -s {{ traefik_vip }} -j ACCEPT -m comment --comment "Technitium Web UI - from VIP"
 -A INPUT -p tcp --dport 5380 -j DROP -m comment --comment "Block direct Technitium Web UI"
 
-# Traefik API — localhost only (keepalived health check)
+# Traefik API — localhost (keepalived health check) + vm-monitoring (Prometheus scrape)
 -A INPUT -p tcp --dport 8080 -s 127.0.0.1 -j ACCEPT -m comment --comment "Traefik API - keepalived"
+-A INPUT -p tcp --dport 8080 -s 172.16.86.21 -j ACCEPT -m comment --comment "Traefik API - vm-monitoring Prometheus"
 -A INPUT -p tcp --dport 8080 -j DROP -m comment --comment "Block direct Traefik API"
 
 # VRRP traffic between infra nodes

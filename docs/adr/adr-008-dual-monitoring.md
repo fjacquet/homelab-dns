@@ -30,7 +30,7 @@ graph TD
         C4["🤖 Out-of-the-box service checks"]
     end
 
-    STACK["Dual Monitoring Stack\nmc-node-01"]
+    STACK["Dual Monitoring Stack\nvm-monitoring (.21) + vm-checkmk (.22)"]
     STACK --> Prometheus & Checkmk
 
     style Prometheus fill:#fff3e0,stroke:#ff9800
@@ -46,6 +46,7 @@ graph TD
 
 ## Consequences
 
-- Higher resource usage on mc-node-01 (Prometheus + Grafana + Checkmk)
+- Prometheus + Grafana on `vm-monitoring` (172.16.86.21, mc-node-01)
+- Checkmk on `vm-checkmk` (172.16.86.22, mc-node-02) — distributed for load balance
 - Two UIs to check (mitigated by Traefik providing HTTPS access to both)
 - Checkmk agent + node_exporter deployed on all 5 nodes

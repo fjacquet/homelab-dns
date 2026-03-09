@@ -31,9 +31,9 @@ graph TD
     I1_TRAEFIK <-->|"VIP .20"| I2_TRAEFIK
 
     subgraph MC["MicroCloud — .13/.14/.15"]
-        MC_PROM["Prometheus"]
-        MC_GRAF["Grafana"]
-        MC_CHK["Checkmk"]
+        MC_VM1["vm-monitoring .21\nPrometheus + Grafana"]
+        MC_VM2["vm-checkmk .22\nCheckmk"]
+        MC_VM3["vm-automation .23\nn8n + webhook"]
         MC_OVN["OVN + NFS"]
     end
 
@@ -63,12 +63,13 @@ echo 'your-vault-password' > ~/.vault_pass && chmod 600 ~/.vault_pass
 ansible-vault edit group_vars/all/vault.yml
 
 # Deploy infrastructure (infra1 + infra2)
-ansible-playbook -i inventory.yml site.yml
+ansible-playbook playbooks/site.yml
 
 # Deploy MicroCloud nodes
-ansible-playbook -i inventory.yml microcloud-prepare.yml
+ansible-playbook playbooks/microcloud-prepare.yml
 ssh fjacquet@172.16.86.13 "sudo microcloud init"  # interactive
-ansible-playbook -i inventory.yml microcloud-services.yml
+ansible-playbook playbooks/microcloud-services.yml
+ansible-playbook playbooks/microcloud-vms-monitoring.yml
 ```
 
 ## Key Design Decisions
@@ -77,6 +78,7 @@ ansible-playbook -i inventory.yml microcloud-services.yml
 - **WireGuard native** — kernel module, not Docker (simpler, more reliable)
 - **Technitium in Docker** — no .deb package available, `network_mode: host` for DHCP broadcast
 - **keepalived VIP** — sub-10s failover vs DNS round-robin (minutes)
+- **LXD VMs not containers** — VMs get real LAN IPs via macvlan, own kernel, no UID remapping hacks
 - **Dual monitoring** — Prometheus/Grafana (metrics) + Checkmk (SNMP, auto-discovery, alerting)
 - **Separate patch playbooks** — `update.yml` (OS + reboot) and `update-containers.yml` (images + node_exporter) run independently; no Watchtower
 

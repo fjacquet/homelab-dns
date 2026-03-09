@@ -29,3 +29,19 @@ http:
     insecure-skip-verify:
       insecureSkipVerify: true
 {% endif %}
+
+# --- TLS passthrough for LXD Web UI (mTLS required) ---
+tcp:
+  routers:
+    lxd:
+      rule: "HostSNI(`lxd.{{ domain }}`)"
+      entryPoints: [websecure]
+      service: lxd
+      tls:
+        passthrough: true
+
+  services:
+    lxd:
+      loadBalancer:
+        servers:
+          - address: "172.16.86.13:8443"

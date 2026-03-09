@@ -22,39 +22,40 @@ SSH access required to all target hosts before running any playbook.
 
 ```bash
 # Full infra deployment (infra1 + infra2)
-ansible-playbook -i inventory.yml site.yml
+ansible-playbook playbooks/site.yml
 
 # Dry-run
-ansible-playbook -i inventory.yml site.yml --check --diff
+ansible-playbook playbooks/site.yml --check --diff
 
 # Deploy by phase/tag
-ansible-playbook -i inventory.yml site.yml --tags base
-ansible-playbook -i inventory.yml site.yml --tags docker
-ansible-playbook -i inventory.yml site.yml --tags technitium
-ansible-playbook -i inventory.yml site.yml --tags dns_records
-ansible-playbook -i inventory.yml site.yml --tags traefik
-ansible-playbook -i inventory.yml site.yml --tags keepalived
-ansible-playbook -i inventory.yml site.yml --tags iptables
-ansible-playbook -i inventory.yml site.yml --tags dhcp
-ansible-playbook -i inventory.yml site.yml --tags wireguard
-ansible-playbook -i inventory.yml site.yml --tags cron
-ansible-playbook -i inventory.yml site.yml --tags monitoring
-ansible-playbook -i inventory.yml site.yml --tags verify  # smoke tests
+ansible-playbook playbooks/site.yml --tags base
+ansible-playbook playbooks/site.yml --tags docker
+ansible-playbook playbooks/site.yml --tags technitium
+ansible-playbook playbooks/site.yml --tags dns_records
+ansible-playbook playbooks/site.yml --tags traefik
+ansible-playbook playbooks/site.yml --tags keepalived
+ansible-playbook playbooks/site.yml --tags iptables
+ansible-playbook playbooks/site.yml --tags dhcp
+ansible-playbook playbooks/site.yml --tags wireguard
+ansible-playbook playbooks/site.yml --tags cron
+ansible-playbook playbooks/site.yml --tags monitoring
+ansible-playbook playbooks/site.yml --tags verify  # smoke tests
 
 # Patch management (all 5 nodes, serial, reboot if needed)
-ansible-playbook -i inventory.yml update.yml
-ansible-playbook -i inventory.yml update.yml --check --diff   # dry-run
-ansible-playbook -i inventory.yml update.yml --limit opt1     # single host
-ansible-playbook -i inventory.yml update.yml --skip-tags reboot  # no reboots
+ansible-playbook playbooks/update.yml
+ansible-playbook playbooks/update.yml --check --diff   # dry-run
+ansible-playbook playbooks/update.yml --limit opt1     # single host
+ansible-playbook playbooks/update.yml --skip-tags reboot  # no reboots
 
 # Container image updates (pull latest + recreate, no reboot)
-ansible-playbook -i inventory.yml update-containers.yml
-ansible-playbook -i inventory.yml update-containers.yml --limit opt1  # single host
+ansible-playbook playbooks/update-containers.yml
+ansible-playbook playbooks/update-containers.yml --limit opt1  # single host
 
 # MicroCloud nodes (opt3/4/5)
-ansible-playbook -i inventory.yml microcloud-prepare.yml
+ansible-playbook playbooks/microcloud-prepare.yml
 ssh fjacquet@172.16.86.13 "sudo microcloud init"  # interactive, must run manually
-ansible-playbook -i inventory.yml microcloud-services.yml
+ansible-playbook playbooks/microcloud-services.yml
+ansible-playbook playbooks/microcloud-vms-monitoring.yml  # node_exporter + Prometheus scrape
 
 # Vault management
 ansible-vault edit group_vars/all/vault.yml
@@ -79,6 +80,7 @@ ansible-vault edit group_vars/all/vault.yml
 | `microcloud-services.yml` Phase 3 | `microcloud[0]` | n8n + ansible-webhook automation stack (NFS-backed) |
 | `microcloud-prepare.yml` | `microcloud` | Base setup, snaps, NFS mounts, node_exporter |
 | `microcloud-services.yml` | `microcloud[0]` (mc-node-01) | Prometheus, Grafana, Checkmk server + agents |
+| `microcloud-vms-monitoring.yml` | `microcloud[0]` | Install node_exporter in VMs + add `node-vms` Prometheus job |
 
 ### Service Architecture
 

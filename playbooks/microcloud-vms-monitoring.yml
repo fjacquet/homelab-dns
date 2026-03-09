@@ -1,0 +1,151 @@
+---
+# #############################################################################
+# MicroCloud VMs — Install node_exporter + update Prometheus scrape config
+#
+# Run AFTER microcloud-services.yml. Installs prometheus-node-exporter inside
+# each LXD VM and adds a node-vms job to the Prometheus config on vm-monitoring.
+#
+# VMs:
+#   vm-monitoring  172.16.86.21  (on mc-node-01)
+#   vm-checkmk     172.16.86.22  (on mc-node-02)
+#   vm-automation  172.16.86.23  (on mc-node-03)
+# #############################################################################
+
+# #############################################################################
+# Phase 1 — Install node_exporter in all 3 VMs
+# #############################################################################
+- name: "MC VMs Monitoring — Install node_exporter in LXD VMs"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_vm_node_exporter]
+  vars:
+    vms:
+      - vm-monitoring
+      - vm-checkmk
+      - vm-automation
+  tasks:
+    - name: Install prometheus-node-exporter in each VM
+      ansible.builtin.command: >-
+        lxc exec {{ item }} --
+        bash -c "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y prometheus-node-exporter"
+      loop: "{{ vms }}"
+      changed_when: true
+
+    - name: Enable and start node_exporter in each VM
+      ansible.builtin.command: "lxc exec {{ item }} -- systemctl enable --now prometheus-node-exporter"
+      loop: "{{ vms }}"
+      changed_when: true
+
+    - name: Verify node_exporter is listening in each VM
+      ansible.builtin.command: "lxc exec {{ item }} -- ss -tlnp"
+      loop: "{{ vms }}"
+      register: ss_output
+      changed_when: false
+
+    - name: Show port 9100 status per VM
+      ansible.builtin.debug:
+        msg: "{{ item.item }}: {{ 'OK :9100' if ':9100' in item.stdout else 'NOT listening on 9100' }}"
+      loop: "{{ ss_output.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+# #############################################################################
+# Phase 2 — Update Prometheus config to scrape VMs + restart Prometheus
+# #############################################################################
+- name: "MC VMs Monitoring — Add node-vms job to Prometheus"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_vm_prometheus]
+  vars:
+    vm_name: vm-monitoring
+    vm_monitoring_ip: "172.16.86.21"
+    vm_checkmk_ip: "172.16.86.22"
+    vm_automation_ip: "172.16.86.23"
+  tasks:
+    - name: Deploy full Prometheus config (with node-vms job)
+      ansible.builtin.shell: |
+        cat <<'PROM_EOF' | lxc exec {{ vm_name }} -- tee /etc/prometheus/prometheus.yml
+        global:
+          scrape_interval: 15s
+          evaluation_interval: 15s
+
+        scrape_configs:
+          # --- Infrastructure nodes (infra1, infra2) ---
+          - job_name: node-infra
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:{{ node_exporter_port }}
+                  - {{ dns_secondary_ip }}:{{ node_exporter_port }}
+                labels:
+                  role: infra
+
+          # --- MicroCloud nodes (mc-node-01/.13 excluded: macvlan host-to-VM unreachable) ---
+          - job_name: node-microcloud
+            static_configs:
+              - targets:
+                  - {{ hostvars[groups['microcloud'][1]]['ansible_host'] }}:{{ node_exporter_port }}
+                  - {{ hostvars[groups['microcloud'][2]]['ansible_host'] }}:{{ node_exporter_port }}
+                labels:
+                  role: microcloud
+
+          # --- LXD VMs (vm-monitoring, vm-checkmk, vm-automation) ---
+          - job_name: node-vms
+            static_configs:
+              - targets:
+                  - {{ vm_monitoring_ip }}:{{ node_exporter_port }}
+                  - {{ vm_checkmk_ip }}:{{ node_exporter_port }}
+                  - {{ vm_automation_ip }}:{{ node_exporter_port }}
+                labels:
+                  role: lxd-vm
+
+          # --- Docker containers (cAdvisor) ---
+          - job_name: cadvisor
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:{{ cadvisor_port }}
+                  - {{ dns_secondary_ip }}:{{ cadvisor_port }}
+
+          # --- Traefik (HTTP API port 8080, iptables allows vm-monitoring) ---
+          - job_name: traefik
+            static_configs:
+              - targets:
+                  - {{ dns_primary_ip }}:8080
+                  - {{ dns_secondary_ip }}:8080
+
+          # --- WireGuard (infra2) ---
+          - job_name: wireguard
+            static_configs:
+              - targets:
+                  - {{ dns_secondary_ip }}:{{ wireguard_exporter_port }}
+
+          # --- Prometheus self ---
+          - job_name: prometheus
+            static_configs:
+              - targets:
+                  - localhost:9090
+        PROM_EOF
+      changed_when: true
+
+    - name: Reload Prometheus config (lifecycle API)
+      ansible.builtin.uri:
+        url: "http://{{ vm_monitoring_ip }}:9090/-/reload"
+        method: POST
+        status_code: [200, 204]
+      register: reload_result
+      failed_when: false
+
+    - name: Restart Prometheus if reload failed
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl restart prometheus"
+      when: reload_result.status not in [200, 204]
+      changed_when: true
+
+    - name: Verify Prometheus targets include node-vms
+      ansible.builtin.uri:
+        url: "http://{{ vm_monitoring_ip }}:9090/api/v1/targets"
+        return_content: true
+      register: prom_targets
+      failed_when: false
+
+    - name: Show active target count
+      ansible.builtin.debug:
+        msg: "Prometheus targets response status: {{ prom_targets.status | default('unreachable') }}"

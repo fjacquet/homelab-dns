@@ -48,25 +48,20 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    subgraph MC01["mc-node-01 (172.16.86.13)"]
-        N8N["n8n container\n:5678"]
-        AW["ansible-webhook container\n:8000"]
-        NET["automation Docker network"]
-        N8N -->|"http://ansible-webhook:8000"| NET
-        NET --> AW
+    subgraph VM_AUTO["vm-automation (172.16.86.23, mc-node-03)"]
+        N8N["n8n native\nNode.js 20 :5678"]
+        AW["ansible-webhook native\nuvicorn :8000"]
     end
 
-    subgraph NFS["NFS volumes (Synology /srv/datastore)"]
-        REPO["/srv/datastore/homelab-dns\n→ /playbooks (ro)"]
-        N8NDATA["/srv/datastore/n8n\n→ /home/node/.n8n"]
+    subgraph VM_DATA["/var/lib/n8n (VM disk on NFS qcow2)"]
+        N8NDATA["n8n workflow data"]
     end
 
-    subgraph Local["/opt/secrets (local, not NFS)"]
-        SSH["id_rsa → /root/.ssh/id_rsa (ro)"]
-        VAULT["vault_pass → /vault_pass (ro)"]
+    subgraph Local["/opt/secrets (inside VM)"]
+        SSH["id_rsa"]
+        VAULT["vault_pass"]
     end
 
-    AW --> NFS
     AW --> Local
     N8N --> N8NDATA
 
