@@ -101,7 +101,7 @@ dhcp_reservations:
   - { mac: "64:00:6A:7D:86:F6", ip: "172.16.86.15", name: "ubuntu-server mc-node-03" }
   - { mac: "04:70:56:68:C5:9C", ip: "172.16.86.25", name: "TV-Box" }
   - { mac: "68:B9:C2:12:71:B9", ip: "172.16.86.32", name: "Unknown 68B9" }
-  # LXD VMs — MAC addresses TBD (capture with: lxc config get <vm> volatile.eth0.hwaddr)
+  # LXD VMs — verify with: lxc config get <vm> volatile.eth0.hwaddr on mc-node-01
   - { mac: "00:16:3e:48:43:97", ip: "172.16.86.21", name: "vm-monitoring" }
   - { mac: "00:16:3e:af:4c:9a", ip: "172.16.86.22", name: "vm-checkmk" }
   - { mac: "00:16:3e:d5:5a:a6", ip: "172.16.86.23", name: "vm-automation" }
@@ -138,7 +138,7 @@ traefik_services:
   # MicroCloud VMs (direct LAN IPs, no proxy devices)
   - { name: grafana, host: "grafana.evlab.ch", url: "http://172.16.86.21:3000" }
   - { name: prometheus, host: "prometheus.evlab.ch", url: "http://172.16.86.21:9090" }
-  - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.22:80" }
+  - { name: checkmk, host: "checkmk.evlab.ch", url: "http://172.16.86.22:80", redirect_root: "/cmk" }
   # Automation VM
   - { name: n8n, host: "n8n.evlab.ch", url: "http://172.16.86.23:5678" }
   - { name: ansible, host: "ansible.evlab.ch", url: "http://172.16.86.23:8000" }
@@ -161,6 +161,12 @@ wireguard_port: 51820
 wireguard_internal_subnet: "10.13.13.0/24"
 # Physical LAN NIC (same on all Optiplex Micro units)
 lan_interface: enp0s31f6
+# macvlan-host bridge IP for opt4 — allows vm-checkmk to reach opt4's agent (macvlan isolation workaround)
+opt4_macvlan_ip: "172.16.86.24"
+# LXD VM IPs (used in opt4 macvlan routing and Checkmk registration)
+vm_monitoring_ip: "172.16.86.21"
+vm_checkmk_ip: "172.16.86.22"
+vm_automation_ip: "172.16.86.23"
 
 # Cles generees par: wg genkey | tee private.key | wg pubkey > public.key
 wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
@@ -193,15 +199,33 @@ docker_base_dir: /opt/docker
 prometheus_dir: /opt/monitoring/prometheus
 grafana_dir: /opt/monitoring/grafana
 checkmk_dir: /opt/monitoring/checkmk
+checkmk_grafana_secret: "{{ vault_checkmk_grafana_secret }}"
+# Checkmk REST API — use the automation user (Basic auth), not the UI password (Bearer tokens require WSGI bypass)
+checkmk_api_url: "http://{{ vm_checkmk_ip }}/cmk/check_mk/api/1.0"
+checkmk_automation_user: automation
+checkmk_automation_secret: "{{ vault_checkmk_automation_secret }}"
 
 # === Checkmk monitored hosts ===
+# MicroCloud nodes appear twice: as physical hosts (opt3/4/5) and as LXD cluster members (mc-node-*)
 checkmk_hosts:
-  - { name: "infra1", ip: "172.16.86.11" }
-  - { name: "infra2", ip: "172.16.86.12" }
-  - { name: "mc-node-01", ip: "172.16.86.13" }
-  - { name: "mc-node-02", ip: "172.16.86.14" }
-  - { name: "mc-node-03", ip: "172.16.86.15" }
-  - { name: "vm-monitoring", ip: "172.16.86.21" }
-  - { name: "vm-checkmk", ip: "172.16.86.22" }
-  - { name: "vm-automation", ip: "172.16.86.23" }
-  - { name: "nas", ip: "172.16.86.10" }
+  - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
+  - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
+  - { name: "opt3.evlab.ch", ip: "172.16.86.13" }
+  - { name: "opt4.evlab.ch", ip: "172.16.86.24" }       # macvlan-host IP (physical .14 unreachable from vm-checkmk)
+  - { name: "opt5.evlab.ch", ip: "172.16.86.15" }
+  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.13" }
+  - { name: "mc-node-02.evlab.ch", ip: "172.16.86.24" } # macvlan-host IP (same host as opt4)
+  - { name: "mc-node-03.evlab.ch", ip: "172.16.86.15" }
+  - { name: "vm-monitoring.evlab.ch", ip: "172.16.86.21" }
+  - { name: "vm-checkmk.evlab.ch", ip: "172.16.86.22" }
+  - { name: "vm-automation.evlab.ch", ip: "172.16.86.23" }
+  # nas.evlab.ch excluded until Synology Checkmk agent is manually installed
+
+# MicroCloud hostnames (both aliases) used for memory threshold rules
+checkmk_microcloud_hosts:
+  - "opt3.evlab.ch"
+  - "opt4.evlab.ch"
+  - "opt5.evlab.ch"
+  - "mc-node-01.evlab.ch"
+  - "mc-node-02.evlab.ch"
+  - "mc-node-03.evlab.ch"

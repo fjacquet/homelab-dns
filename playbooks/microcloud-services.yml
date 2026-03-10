@@ -8,22 +8,22 @@
 # #############################################################################
 # Phase 0a — Clean up old LXD containers
 # #############################################################################
-- name: "MC Services — Clean up old containers"
-  hosts: microcloud[0]
-  become: true
-  tags: [mc_cleanup]
-  tasks:
-    - name: Delete existing LXD instances (containers and VMs, if any)
-      ansible.builtin.command: "lxc delete {{ item }} --force"
-      loop:
-        - monitoring
-        - checkmk
-        - automation
-        - vm-monitoring
-        - vm-checkmk
-        - vm-automation
-      failed_when: false
-      changed_when: true
+# - name: "MC Services — Clean up old containers"
+#   hosts: microcloud[0]
+#   become: true
+#   tags: [mc_cleanup]
+#   tasks:
+#     - name: Delete existing LXD instances (containers and VMs, if any)
+#       ansible.builtin.command: "lxc delete {{ item }} --force"
+#       loop:
+#         - monitoring
+#         - checkmk
+#         - automation
+#         - vm-monitoring
+#         - vm-checkmk
+#         - vm-automation
+#       failed_when: false
+#       changed_when: true
 
 # #############################################################################
 # Phase 0b — Storage pool (dir on NFS)
@@ -272,8 +272,8 @@
         bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time=30d --web.enable-lifecycle\"/' /etc/default/prometheus"
       changed_when: true
 
-    - name: Enable and restart Prometheus
-      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl enable --now prometheus && lxc exec {{ vm_name }} -- systemctl restart prometheus"
+    - name: Enable and start Prometheus
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl enable --now prometheus"
       changed_when: true
 
     # --- Grafana ---
@@ -320,6 +320,33 @@
       args:
         executable: /bin/bash
       changed_when: true
+
+    - name: Install Checkmk datasource plugin for Grafana
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- grafana-cli plugins install checkmk-cloud-datasource
+      changed_when: true
+
+    - name: Deploy Checkmk datasource provisioning
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat <<'GRAF_CMK' | lxc exec {{ vm_name }} -- tee /etc/grafana/provisioning/datasources/checkmk.yml
+        apiVersion: 1
+        datasources:
+          - name: Checkmk
+            type: checkmk-cloud-datasource
+            access: proxy
+            jsonData:
+              url: http://172.16.86.22/cmk/
+              edition: RAW
+              username: grafana
+            secureJsonData:
+              secret: {{ vault_checkmk_grafana_secret }}
+            editable: false
+        GRAF_CMK
+      args:
+        executable: /bin/bash
+      changed_when: true
+      no_log: true
 
     - name: Deploy Grafana dashboard provisioning
       ansible.builtin.shell: |
@@ -779,6 +806,56 @@
           Add DHCP reservation with MAC: {{ vm_automation_mac.stdout }}
 
 # #############################################################################
+# Phase 3.5 — opt4 macvlan-host bridge (macvlan isolation workaround)
+# #############################################################################
+# opt4 hosts vm-checkmk via macvlan. macvlan isolates the host from its VMs at layer 2:
+# neither opt4→vm-checkmk nor vm-checkmk→opt4 works over the network.
+# A host-side macvlan bridge interface (macvlan-host) participates in the same virtual
+# switch as the VMs, enabling bidirectional communication without touching netplan.
+- name: "MC Services — opt4 macvlan-host bridge"
+  hosts: opt4
+  become: true
+  tags: [mc_macvlan_host]
+  tasks:
+    - name: Deploy macvlan-host systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/macvlan-host.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=macvlan-host bridge interface (opt4 macvlan isolation workaround)
+          After=network.target
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/bash -c 'ip link show macvlan-host &>/dev/null || ip link add macvlan-host link {{ lan_interface }} type macvlan mode bridge'
+          ExecStart=/sbin/ip addr replace {{ opt4_macvlan_ip }}/24 dev macvlan-host
+          ExecStart=/sbin/ip link set macvlan-host up
+          ExecStart=/sbin/ip route replace {{ vm_monitoring_ip }}/32 dev macvlan-host src {{ opt4_macvlan_ip }}
+          ExecStart=/sbin/ip route replace {{ vm_checkmk_ip }}/32 dev macvlan-host src {{ opt4_macvlan_ip }}
+          ExecStart=/sbin/ip route replace {{ vm_automation_ip }}/32 dev macvlan-host src {{ opt4_macvlan_ip }}
+          ExecStop=/sbin/ip route del {{ vm_monitoring_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip route del {{ vm_checkmk_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip route del {{ vm_automation_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip link delete macvlan-host
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart macvlan-host
+
+    - name: Enable macvlan-host service
+      ansible.builtin.systemd:
+        name: macvlan-host
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: Restart macvlan-host
+      ansible.builtin.systemd:
+        name: macvlan-host
+        state: restarted
+        daemon_reload: true
+
+# #############################################################################
 # Phase 4 — Checkmk agents on all nodes
 # #############################################################################
 - name: "MC Services — Checkmk agents on all nodes"
@@ -810,6 +887,7 @@
             vm-checkmk/omd/sites/cmk/share/check_mk/agents/check-mk-agent_2.3.0p30-1_all.deb
             /tmp/check-mk-agent.deb
           changed_when: true
+          failed_when: false
 
         - name: Install pulled agent .deb
           ansible.builtin.apt:
@@ -828,16 +906,15 @@
   gather_facts: false
   become: true
   tags: [mc_checkmk_hosts]
-  vars:
-    checkmk_url: "http://172.16.86.22/cmk/api/1.0"
-    checkmk_auth: "Bearer cmkadmin {{ vault_checkmk_password }}"
   tasks:
     - name: Register each host in Checkmk
       ansible.builtin.uri:
-        url: "{{ checkmk_url }}/domain-types/host_config/collections/all"
+        url: "{{ checkmk_api_url }}/domain-types/host_config/collections/all"
         method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
         headers:
-          Authorization: "{{ checkmk_auth }}"
           Content-Type: "application/json"
         body_format: json
         body:
@@ -846,25 +923,50 @@
           attributes:
             ipaddress: "{{ item.ip }}"
         status_code: [200, 201, 400]
-        failed_when: false
+      failed_when: false
       loop: "{{ checkmk_hosts }}"
       loop_control:
         label: "{{ item.name }} ({{ item.ip }})"
       no_log: true
 
+    - name: Update opt4/mc-node-02 agent IP to macvlan-host address (idempotent fix for existing hosts)
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/objects/host_config/{{ item }}"
+        method: PUT
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+          If-Match: "*"
+        body_format: json
+        body:
+          attributes:
+            ipaddress: "{{ opt4_macvlan_ip }}"
+        status_code: [200, 204]
+      failed_when: false
+      no_log: true
+      loop:
+        - "opt4.evlab.ch"
+        - "mc-node-02.evlab.ch"
+      vars:
+        opt4_macvlan_ip: "172.16.86.24"
+
     - name: Discover services on each host
       ansible.builtin.uri:
-        url: "{{ checkmk_url }}/domain-types/service_discovery_run/collections/all"
+        url: "{{ checkmk_api_url }}/domain-types/service_discovery_run/collections/all"
         method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
         headers:
-          Authorization: "{{ checkmk_auth }}"
           Content-Type: "application/json"
         body_format: json
         body:
           host_name: "{{ item.name }}"
           mode: "refresh"
         status_code: [200, 201, 302]
-        failed_when: false
+      failed_when: false
       loop: "{{ checkmk_hosts }}"
       loop_control:
         label: "{{ item.name }}"
@@ -872,14 +974,238 @@
 
     - name: Activate Checkmk configuration changes
       ansible.builtin.uri:
-        url: "{{ checkmk_url }}/domain-types/activation_run/actions/activate-changes/invoke"
+        url: "{{ checkmk_api_url }}/domain-types/activation_run/actions/activate-changes/invoke"
         method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
         headers:
-          Authorization: "{{ checkmk_auth }}"
           Content-Type: "application/json"
         body_format: json
         body:
           force_foreign_changes: true
         status_code: [200, 201, 302, 409]
-        failed_when: false
+      failed_when: false
       no_log: true
+
+# #############################################################################
+# Phase 6 — Checkmk tuning: accept host labels, memory rules, agent TLS
+# #############################################################################
+- name: "MC Services — Checkmk tuning"
+  hosts: microcloud[0]
+  gather_facts: false
+  become: true
+  tags: [mc_checkmk_tune]
+  tasks:
+    - name: Accept new host labels for all monitored hosts
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/domain-types/service_discovery_run/collections/all"
+        method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          host_name: "{{ item.name }}"
+          mode: "only-host-labels"
+        status_code: [200, 201, 302]
+      failed_when: false
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Create rule — raise shared memory thresholds for MicroCloud nodes
+      # LXD containers use tmpfs which inflates shared memory counters on MicroCloud hosts.
+      # Default thresholds (20%/30%) are too low; raise shm to 80%/95%.
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/domain-types/rule/collections/all"
+        method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          ruleset: "memory_percentage_used"
+          folder: "/"
+          properties:
+            description: "Raise shared memory thresholds for LXD/MicroCloud nodes"
+            disabled: false
+          value_raw: "{'levels_shm': ('perc_used', (80.0, 95.0))}"
+          conditions:
+            host_name:
+              match_on: "{{ checkmk_microcloud_hosts }}"
+              operator: "one_of"
+        status_code: [200, 201, 400]
+      failed_when: false
+      no_log: true
+
+    - name: Activate Checkmk configuration changes
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/domain-types/activation_run/actions/activate-changes/invoke"
+        method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          force_foreign_changes: true
+        status_code: [200, 201, 302, 409]
+      failed_when: false
+      no_log: true
+
+# #############################################################################
+# Phase 7 — Register Checkmk agent TLS on all monitored nodes
+# #############################################################################
+- name: "MC Services — Checkmk agent TLS registration"
+  hosts: dns_servers:microcloud
+  become: true
+  tags: [mc_checkmk_tls]
+  vars:
+    # Derive the Checkmk hostname from the inventory:
+    # - infra nodes use infra_hostname (e.g. infra1) + domain
+    # - microcloud nodes use inventory_hostname (e.g. opt3) + domain
+    checkmk_fqdn: >-
+      {{ (infra_hostname is defined) | ternary(infra_hostname, inventory_hostname) }}.{{ domain }}
+  tasks:
+    - name: Check if agent is already TLS-registered
+      ansible.builtin.command: cmk-agent-ctl status
+      register: ctl_status
+      changed_when: false
+      failed_when: false
+
+    - name: Register agent with Checkmk server (TLS)
+      ansible.builtin.command: >-
+        cmk-agent-ctl register
+        --hostname {{ checkmk_fqdn }}
+        --server 172.16.86.22
+        --site cmk
+        --user cmkadmin
+        --password {{ vault_checkmk_password }}
+        --trust-cert
+      when: "'registered' not in (ctl_status.stdout | lower)"
+      changed_when: true
+      failed_when: false
+      no_log: true
+
+# #############################################################################
+# Phase 7.2 — Checkmk agent install inside running LXD VMs
+# #############################################################################
+# Runs from the LXD cluster controller (microcloud[0] = opt3).
+# Only installs in RUNNING VMs; stopped VMs are skipped via failed_when: false.
+- name: "MC Services — Checkmk agent install in LXD VMs"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_checkmk_agent_vms]
+  tasks:
+    - name: Install Checkmk agent inside running LXD VMs
+      ansible.builtin.command: >-
+        lxc exec {{ item }} -- bash -c
+        "dpkg -l check-mk-agent 2>/dev/null | grep -q check-mk-agent ||
+        (wget -q https://checkmk.{{ domain }}/cmk/check_mk/agents/check-mk-agent_2.3.0p30-1_all.deb
+        -O /tmp/check-mk-agent.deb && dpkg -i /tmp/check-mk-agent.deb && rm /tmp/check-mk-agent.deb)"
+      loop:
+        - vm-monitoring
+        - vm-checkmk
+        - vm-automation
+      failed_when: false
+      changed_when: true
+
+# #############################################################################
+# Phase 7.5 — Checkmk agent TLS registration inside LXD VMs
+# #############################################################################
+# Physical host agents are registered above. VMs need registration via lxc exec
+# (no network path needed — uses LXD API to exec inside the VM directly).
+- name: "MC Services — Checkmk agent TLS registration in VMs"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_checkmk_tls_vms]
+  vars:
+    checkmk_vm_hosts:
+      - { vm: vm-monitoring,  fqdn: "vm-monitoring.evlab.ch" }
+      - { vm: vm-checkmk,     fqdn: "vm-checkmk.evlab.ch" }
+      - { vm: vm-automation,  fqdn: "vm-automation.evlab.ch" }
+  tasks:
+    - name: Check TLS registration status inside each VM
+      ansible.builtin.command: lxc exec {{ item.vm }} -- cmk-agent-ctl status
+      loop: "{{ checkmk_vm_hosts }}"
+      loop_control:
+        label: "{{ item.vm }}"
+      register: vm_ctl_status
+      changed_when: false
+      failed_when: false
+
+    - name: Register Checkmk agent TLS inside each VM
+      ansible.builtin.command: >-
+        lxc exec {{ item.item.vm }} -- cmk-agent-ctl register
+        --hostname {{ item.item.fqdn }}
+        --server 172.16.86.22
+        --site cmk
+        --user cmkadmin
+        --password {{ vault_checkmk_password }}
+        --trust-cert
+      loop: "{{ vm_ctl_status.results }}"
+      loop_control:
+        label: "{{ item.item.vm }}"
+      when: "'registered' not in (item.stdout | lower)"
+      changed_when: true
+      failed_when: false
+      no_log: true
+
+# #############################################################################
+# Phase 8 — Checkmk ↔ Grafana integration (automation user + datasource)
+# #############################################################################
+- name: "MC Services — Checkmk Grafana integration"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_grafana_checkmk]
+  vars:
+    vm_monitoring: vm-monitoring
+  tasks:
+    - name: Create Grafana automation user in Checkmk
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/domain-types/user_config/collections/all"
+        method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          username: "grafana"
+          fullname: "Grafana Integration"
+          auth_option:
+            auth_type: "automation"
+            secret: "{{ vault_checkmk_grafana_secret }}"
+          roles:
+            - "guest"
+        status_code: [200, 201, 400] # 400 = user already exists
+      failed_when: false
+      no_log: true
+
+    - name: Activate Checkmk configuration changes
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/domain-types/activation_run/actions/activate-changes/invoke"
+        method: POST
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          force_foreign_changes: true
+        status_code: [200, 201, 302, 409]
+      failed_when: false
+      no_log: true
+
+    - name: Restart Grafana to load Checkmk plugin and datasource
+      ansible.builtin.command: "lxc exec {{ vm_monitoring }} -- systemctl restart grafana-server"
+      changed_when: true
