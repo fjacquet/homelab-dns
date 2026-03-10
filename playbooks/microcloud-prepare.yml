@@ -208,7 +208,7 @@
         mode: "0644"
         content: |
           [Time]
-          NTP={{ gateway }}
+          NTP=ntp.metas.ch
           FallbackNTP=pool.ntp.org
       notify: Restart timesyncd
 
