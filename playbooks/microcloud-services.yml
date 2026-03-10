@@ -1144,9 +1144,9 @@
   tags: [mc_checkmk_tls_vms]
   vars:
     checkmk_vm_hosts:
-      - { vm: vm-monitoring,  fqdn: "vm-monitoring.evlab.ch" }
-      - { vm: vm-checkmk,     fqdn: "vm-checkmk.evlab.ch" }
-      - { vm: vm-automation,  fqdn: "vm-automation.evlab.ch" }
+      - { vm: vm-monitoring, fqdn: "vm-monitoring.evlab.ch" }
+      - { vm: vm-checkmk, fqdn: "vm-checkmk.evlab.ch" }
+      - { vm: vm-automation, fqdn: "vm-automation.evlab.ch" }
   tasks:
     - name: Check TLS registration status inside each VM
       ansible.builtin.command: lxc exec {{ item.vm }} -- cmk-agent-ctl status
