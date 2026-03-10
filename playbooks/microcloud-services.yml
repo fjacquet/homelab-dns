@@ -929,9 +929,9 @@
         label: "{{ item.name }} ({{ item.ip }})"
       no_log: true
 
-    - name: Update opt4/mc-node-02 agent IP to macvlan-host address (idempotent fix for existing hosts)
+    - name: Ensure correct IP attribute on all hosts (idempotent PUT — handles pre-created hosts without IP)
       ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/objects/host_config/{{ item }}"
+        url: "{{ checkmk_api_url }}/objects/host_config/{{ item.name }}"
         method: PUT
         url_username: "{{ checkmk_automation_user }}"
         url_password: "{{ checkmk_automation_secret }}"
@@ -942,15 +942,13 @@
         body_format: json
         body:
           attributes:
-            ipaddress: "{{ opt4_macvlan_ip }}"
+            ipaddress: "{{ item.ip }}"
         status_code: [200, 204]
       failed_when: false
       no_log: true
-      loop:
-        - "opt4.evlab.ch"
-        - "mc-node-02.evlab.ch"
-      vars:
-        opt4_macvlan_ip: "172.16.86.24"
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
 
     - name: Discover services on each host
       ansible.builtin.uri:
@@ -1157,6 +1155,37 @@
       changed_when: true
       failed_when: false
       no_log: true
+
+    # vm-checkmk registers with its OWN Checkmk site (loopback connection).
+    # The daemon can get a stale/corrupt cert state — force clean re-registration.
+    - name: Force clean TLS re-registration for vm-checkmk (loopback self-monitoring fix)
+      block:
+        - name: Delete stale TLS registration in vm-checkmk
+          ansible.builtin.command: lxc exec vm-checkmk -- cmk-agent-ctl delete-all
+          failed_when: false
+          changed_when: true
+
+        - name: Re-register vm-checkmk agent TLS with fresh cert
+          ansible.builtin.command: >-
+            lxc exec vm-checkmk -- cmk-agent-ctl register
+            --hostname vm-checkmk.evlab.ch
+            --server 172.16.86.22
+            --site cmk
+            --user cmkadmin
+            --password {{ vault_checkmk_password }}
+            --trust-cert
+          failed_when: false
+          changed_when: true
+          no_log: true
+
+    - name: Restart cmk-agent-ctl daemon inside all VMs (reload cert state)
+      ansible.builtin.command: >-
+        lxc exec {{ item.vm }} -- systemctl restart cmk-agent-ctl-daemon.service
+      loop: "{{ checkmk_vm_hosts }}"
+      loop_control:
+        label: "{{ item.vm }}"
+      failed_when: false
+      changed_when: true
 
 # #############################################################################
 # Phase 8 — Checkmk ↔ Grafana integration (automation user + datasource)

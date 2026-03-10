@@ -12,6 +12,31 @@ http:
             sans:
               - "*.{{ domain }}"
 {% endfor %}
+{% for svc in traefik_services | selectattr('redirect_root', 'defined') | list %}
+    {{ svc.name }}-root-redirect:
+      rule: "Host(`{{ svc.host }}`) && Path(`/`)"
+      entryPoints: [websecure]
+      middlewares:
+        - {{ svc.name }}-redirect-root
+      service: {{ svc.name }}
+      tls:
+        certResolver: infomaniak
+        domains:
+          - main: "{{ domain }}"
+            sans:
+              - "*.{{ domain }}"
+{% endfor %}
+
+{% if traefik_services | selectattr('redirect_root', 'defined') | list | length > 0 %}
+  middlewares:
+{% for svc in traefik_services | selectattr('redirect_root', 'defined') | list %}
+    {{ svc.name }}-redirect-root:
+      redirectRegex:
+        regex: ".*"
+        replacement: "https://{{ svc.host }}{{ svc.redirect_root }}"
+        permanent: true
+{% endfor %}
+{% endif %}
 
   services:
 {% for svc in traefik_services %}
