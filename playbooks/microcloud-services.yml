@@ -929,26 +929,44 @@
         label: "{{ item.name }} ({{ item.ip }})"
       no_log: true
 
-    - name: Ensure correct IP attribute on all hosts (idempotent PUT — handles pre-created hosts without IP)
+    # Checkmk 2.3 requires the real ETag (not "*") for PUT — do GET first to retrieve it.
+    # Use update_attributes (merge) not attributes (replace) to avoid clearing other attrs.
+    - name: Get current host config to retrieve ETag
       ansible.builtin.uri:
         url: "{{ checkmk_api_url }}/objects/host_config/{{ item.name }}"
+        method: GET
+        url_username: "{{ checkmk_automation_user }}"
+        url_password: "{{ checkmk_automation_secret }}"
+        force_basic_auth: true
+        status_code: [200, 404]
+      failed_when: false
+      no_log: true
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: host_get_results
+
+    - name: Update ipaddress for each existing host (merge-update, real ETag)
+      ansible.builtin.uri:
+        url: "{{ checkmk_api_url }}/objects/host_config/{{ item.item.name }}"
         method: PUT
         url_username: "{{ checkmk_automation_user }}"
         url_password: "{{ checkmk_automation_secret }}"
         force_basic_auth: true
         headers:
           Content-Type: "application/json"
-          If-Match: "*"
+          If-Match: "{{ item.etag | default('') }}"
         body_format: json
         body:
-          attributes:
-            ipaddress: "{{ item.ip }}"
+          update_attributes:
+            ipaddress: "{{ item.item.ip }}"
         status_code: [200, 204]
       failed_when: false
       no_log: true
-      loop: "{{ checkmk_hosts }}"
+      loop: "{{ host_get_results.results }}"
       loop_control:
-        label: "{{ item.name }} ({{ item.ip }})"
+        label: "{{ item.item.name }} ({{ item.item.ip }})"
+      when: item.status is defined and item.status == 200
 
     - name: Discover services on each host
       ansible.builtin.uri:

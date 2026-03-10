@@ -189,6 +189,43 @@
     - node_exporter
 
 ##############################################################################
+# Phase 5 — System fixes (NTP + false-alarm suppression)
+##############################################################################
+- name: "MC Phase 5 — NTP and service fixes"
+  hosts: microcloud
+  become: true
+  tags: [mc_fixes]
+  tasks:
+    - name: Create timesyncd drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Configure NTP servers for systemd-timesyncd
+      ansible.builtin.copy:
+        dest: /etc/systemd/timesyncd.conf.d/homelab.conf
+        mode: "0644"
+        content: |
+          [Time]
+          NTP={{ gateway }}
+          FallbackNTP=pool.ntp.org
+      notify: Restart timesyncd
+
+    - name: Mask openipmi service (no IPMI hardware on Optiplex Micro — false alarm)
+      ansible.builtin.systemd:
+        name: openipmi
+        masked: true
+        daemon_reload: true
+      failed_when: false
+
+  handlers:
+    - name: Restart timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: restarted
+
+##############################################################################
 # Summary
 ##############################################################################
 - name: "MC — Summary"
