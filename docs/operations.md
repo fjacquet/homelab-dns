@@ -46,3 +46,21 @@ ssh fjacquet@172.16.86.12 "systemctl status keepalived"
 # Check VRRP logs
 ssh fjacquet@172.16.86.11 "journalctl -u keepalived --no-pager -n 20"
 ```
+
+## Check NTP Sync Status
+
+All 5 Optiplex nodes use `ntp.metas.ch` (MeteoSwiss NTP) via systemd-timesyncd.
+
+```bash
+# Check sync status on all infra nodes
+for h in 172.16.86.11 172.16.86.12; do
+  echo "=== $h ==="; ssh fjacquet@$h "timedatectl status | grep -E 'NTP|sync|RTC'"
+done
+
+# Check MicroCloud nodes
+for h in 172.16.86.13 172.16.86.14 172.16.86.15; do
+  echo "=== $h ==="; ssh fjacquet@$h "timedatectl status | grep -E 'NTP|sync|RTC'"
+done
+```
+
+Expected output: `NTP service: active` and `System clock synchronized: yes`.

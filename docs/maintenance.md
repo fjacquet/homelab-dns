@@ -72,6 +72,20 @@ curl -X POST https://ansible.evlab.ch/run \
   -d '{"playbook":"update.yml","limit":"opt1","extra_vars":{"ansible_check_mode":true}}'
 ```
 
+## System Fixes (NTP + Service Suppression)
+
+Idempotent fixes for all 5 Optiplex nodes: NTP server configuration and masking of services that produce false alarms on desktop hardware (e.g. `openipmi` — no IPMI hardware present on Optiplex Micro).
+
+```bash
+# Apply to infra nodes (opt1, opt2)
+ansible-playbook playbooks/site.yml --tags fixes
+
+# Apply to MicroCloud nodes (opt3, opt4, opt5)
+ansible-playbook playbooks/microcloud-prepare.yml --tags mc_fixes
+```
+
+These are safe to re-run at any time. Expected changes: 0 if already applied.
+
 ## Let's Encrypt Certificate
 
 Renewal is automatic — Traefik renews before expiry via Infomaniak DNS-01 challenge. Check validity:

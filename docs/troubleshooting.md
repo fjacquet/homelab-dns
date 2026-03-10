@@ -82,6 +82,51 @@ vault_wg_server_private_key: "aBcDeFg...xyz="
 vault_wg_server_private_key: aBcDeFg...xyz=
 ```
 
+## openipmi Service Failure (False Alarm)
+
+**Symptom:** `systemctl status` or `systemd-analyze blame` shows `openipmi.service` failed.
+
+**Cause:** Dell Optiplex Micro machines have no IPMI hardware. The `openipmi` package (sometimes pulled in as a dependency) tries to load IPMI kernel modules at boot and fails silently — it is harmless but pollutes the service summary.
+
+**Fix:** Already applied to all 5 nodes via `--tags fixes` / `--tags mc_fixes`. To reapply:
+
+```bash
+# infra nodes (opt1, opt2)
+ansible-playbook playbooks/site.yml --tags fixes
+
+# MicroCloud nodes (opt3, opt4, opt5)
+ansible-playbook playbooks/microcloud-prepare.yml --tags mc_fixes
+```
+
+To verify manually:
+
+```bash
+ssh fjacquet@172.16.86.11 "systemctl is-enabled openipmi 2>&1"
+# Expected: masked
+```
+
+---
+
+## NTP Not Syncing
+
+**Symptom:** `timedatectl` shows `System clock synchronized: no` or uses wrong NTP server.
+
+**Fix:** All 5 nodes have a timesyncd drop-in at `/etc/systemd/timesyncd.conf.d/homelab.conf` setting `NTP=ntp.metas.ch`. If missing, redeploy:
+
+```bash
+ansible-playbook playbooks/site.yml --tags fixes          # opt1, opt2
+ansible-playbook playbooks/microcloud-prepare.yml --tags mc_fixes  # opt3-5
+```
+
+Verify:
+
+```bash
+ssh fjacquet@172.16.86.11 "cat /etc/systemd/timesyncd.conf.d/homelab.conf"
+ssh fjacquet@172.16.86.11 "timedatectl timesync-status"
+```
+
+---
+
 ## systemd-resolved Blocking Port 53
 
 ```bash

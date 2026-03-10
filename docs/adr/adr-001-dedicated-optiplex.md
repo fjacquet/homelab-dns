@@ -35,8 +35,13 @@ graph LR
     style After fill:#e8f5e9,stroke:#4caf50
 ```
 
+## Hardware Limitations
+
+Dell Optiplex Micro is a desktop/micro-PC form factor. It has **no IPMI hardware** (no BMC, no iDRAC, no out-of-band management). The `openipmi` service, if installed as a dependency, will fail at boot with a false alarm. It is masked on all 5 nodes via Ansible (`--tags fixes` / `--tags mc_fixes`).
+
 ## Consequences
 
 - Higher idle power consumption (~30–50W for 2 Optiplex vs Synology alone)
 - More hardware to maintain
 - +65 CHF/year electricity vs Raspberry Pi alternative (zero hardware cost since already owned)
+- No remote power management (no IPMI/iDRAC) — physical access required for power cycling
