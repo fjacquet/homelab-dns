@@ -138,8 +138,8 @@
       failed_when: false
 
     - name: Restart Prometheus if reload failed
-      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl restart prometheus"
-      when: reload_result.status not in [200, 204]
+      ansible.builtin.command: "lxc exec vm-monitoring -- systemctl restart prometheus"
+      when: reload_result.status | default(0) not in [200, 204]
       changed_when: true
 
     - name: Verify Prometheus targets include node-vms
