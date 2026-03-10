@@ -161,8 +161,9 @@ wireguard_port: 51820
 wireguard_internal_subnet: "10.13.13.0/24"
 # Physical LAN NIC (same on all Optiplex Micro units)
 lan_interface: enp0s31f6
-# macvlan-host bridge IP for opt4 — allows vm-checkmk to reach opt4's agent (macvlan isolation workaround)
-opt4_macvlan_ip: "172.16.86.24"
+# macvlan-host bridge IPs — allow VMs to reach their physical host (macvlan isolation workaround)
+opt3_macvlan_ip: "172.16.86.25"   # mc-node-01 (opt3) — allows vm-monitoring to reach opt3's node_exporter
+opt4_macvlan_ip: "172.16.86.24"   # mc-node-02 (opt4) — allows vm-checkmk to reach opt4's agent
 mc_node_01_ip: "172.16.86.13"   # mc-node-01 (opt3) — LXD Web UI backend for Traefik TCP passthrough
 # LXD VM IPs (used in opt4 macvlan routing and Checkmk registration)
 vm_monitoring_ip: "172.16.86.21"
@@ -211,10 +212,10 @@ checkmk_automation_secret: "{{ vault_checkmk_automation_secret }}"
 checkmk_hosts:
   - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
   - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
-  - { name: "opt3.evlab.ch", ip: "172.16.86.13" }
+  - { name: "opt3.evlab.ch", ip: "172.16.86.25" }       # macvlan-host IP (physical .13 unreachable from vm-checkmk)
   - { name: "opt4.evlab.ch", ip: "172.16.86.24" }       # macvlan-host IP (physical .14 unreachable from vm-checkmk)
   - { name: "opt5.evlab.ch", ip: "172.16.86.15" }
-  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.13" }
+  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.25" } # macvlan-host IP (same host as opt3)
   - { name: "mc-node-02.evlab.ch", ip: "172.16.86.24" } # macvlan-host IP (same host as opt4)
   - { name: "mc-node-03.evlab.ch", ip: "172.16.86.15" }
   - { name: "vm-monitoring.evlab.ch", ip: "172.16.86.21" }

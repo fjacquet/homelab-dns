@@ -806,12 +806,58 @@
           Add DHCP reservation with MAC: {{ vm_automation_mac.stdout }}
 
 # #############################################################################
-# Phase 3.5 — opt4 macvlan-host bridge (macvlan isolation workaround)
+# Phase 3.5 — macvlan-host bridge for opt3 and opt4 (macvlan isolation workaround)
 # #############################################################################
-# opt4 hosts vm-checkmk via macvlan. macvlan isolates the host from its VMs at layer 2:
-# neither opt4→vm-checkmk nor vm-checkmk→opt4 works over the network.
-# A host-side macvlan bridge interface (macvlan-host) participates in the same virtual
-# switch as the VMs, enabling bidirectional communication without touching netplan.
+# macvlan isolates a host from its own VMs at layer 2: neither host→VM nor VM→host
+# works over the physical NIC. A macvlan bridge interface on the host participates
+# in the same virtual switch as the VMs, enabling bidirectional communication.
+#
+# opt3 (mc-node-01): hosts vm-monitoring — vm-monitoring can't scrape opt3's node_exporter
+# opt4 (mc-node-02): hosts vm-checkmk   — vm-checkmk can't reach opt4's agent
+- name: "MC Services — opt3 macvlan-host bridge"
+  hosts: opt3
+  become: true
+  tags: [mc_macvlan_host]
+  tasks:
+    - name: Deploy macvlan-host systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/macvlan-host.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=macvlan-host bridge interface (opt3 macvlan isolation workaround)
+          After=network.target
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/bash -c 'ip link show macvlan-host &>/dev/null || ip link add macvlan-host link {{ lan_interface }} type macvlan mode bridge'
+          ExecStart=/sbin/ip addr replace {{ opt3_macvlan_ip }}/24 dev macvlan-host
+          ExecStart=/sbin/ip link set macvlan-host up
+          ExecStart=/sbin/ip route replace {{ vm_monitoring_ip }}/32 dev macvlan-host src {{ opt3_macvlan_ip }}
+          ExecStart=/sbin/ip route replace {{ vm_checkmk_ip }}/32 dev macvlan-host src {{ opt3_macvlan_ip }}
+          ExecStart=/sbin/ip route replace {{ vm_automation_ip }}/32 dev macvlan-host src {{ opt3_macvlan_ip }}
+          ExecStop=/sbin/ip route del {{ vm_monitoring_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip route del {{ vm_checkmk_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip route del {{ vm_automation_ip }}/32 dev macvlan-host || true
+          ExecStop=/sbin/ip link delete macvlan-host
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart macvlan-host
+
+    - name: Enable macvlan-host service
+      ansible.builtin.systemd:
+        name: macvlan-host
+        enabled: true
+        daemon_reload: true
+
+  handlers:
+    - name: Restart macvlan-host
+      ansible.builtin.systemd:
+        name: macvlan-host
+        state: restarted
+        daemon_reload: true
+
+# #############################################################################
 - name: "MC Services — opt4 macvlan-host bridge"
   hosts: opt4
   become: true
@@ -1080,6 +1126,24 @@
         --password {{ vault_checkmk_password }}
         --trust-cert
       when: "'registered' not in (ctl_status.stdout | lower)"
+      changed_when: true
+      failed_when: false
+      no_log: true
+
+    - name: Also register mc-node alias hostname with Checkmk (mc-node-01/02/03)
+      # MicroCloud nodes appear in Checkmk under both opt3.evlab.ch AND mc-node-01.evlab.ch.
+      # cmk-agent-ctl supports multiple registrations; add the mc-node alias so both hosts get data.
+      ansible.builtin.command: >-
+        cmk-agent-ctl register
+        --hostname {{ mc_hostname }}.{{ domain }}
+        --server 172.16.86.22
+        --site cmk
+        --user cmkadmin
+        --password {{ vault_checkmk_password }}
+        --trust-cert
+      when:
+        - mc_hostname is defined
+        - "(mc_hostname + '.' + domain) not in (ctl_status.stdout | lower)"
       changed_when: true
       failed_when: false
       no_log: true

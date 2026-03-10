@@ -12,6 +12,31 @@
 # #############################################################################
 
 # #############################################################################
+# Phase 0 — Suppress false-alarm services inside LXD VMs
+# #############################################################################
+- name: "MC VMs Monitoring — Mask openipmi false alarm in LXD VMs"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_vm_fixes]
+  vars:
+    vms:
+      - vm-monitoring
+      - vm-checkmk
+      - vm-automation
+  tasks:
+    - name: Mask openipmi in each VM (no IPMI hardware — false alarm)
+      ansible.builtin.command: "lxc exec {{ item }} -- systemctl mask openipmi"
+      loop: "{{ vms }}"
+      failed_when: false
+      changed_when: true
+
+    - name: Clear stale openipmi failed state in each VM
+      ansible.builtin.command: "lxc exec {{ item }} -- systemctl reset-failed openipmi"
+      loop: "{{ vms }}"
+      failed_when: false
+      changed_when: false
+
+# #############################################################################
 # Phase 1 — Install node_exporter in all 3 VMs
 # #############################################################################
 - name: "MC VMs Monitoring — Install node_exporter in LXD VMs"
@@ -80,10 +105,11 @@
                 labels:
                   role: infra
 
-          # --- MicroCloud nodes (mc-node-01/.13 excluded: macvlan host-to-VM unreachable) ---
+          # --- MicroCloud nodes (opt3/opt4 via macvlan-host bridge IPs .25/.24) ---
           - job_name: node-microcloud
             static_configs:
               - targets:
+                  - {{ opt3_macvlan_ip }}:{{ node_exporter_port }}
                   - {{ hostvars[groups['microcloud'][1]]['ansible_host'] }}:{{ node_exporter_port }}
                   - {{ hostvars[groups['microcloud'][2]]['ansible_host'] }}:{{ node_exporter_port }}
                 labels:
