@@ -19,7 +19,7 @@
 
 # Traefik API — localhost (keepalived health check) + vm-monitoring (Prometheus scrape)
 -A INPUT -p tcp --dport 8080 -s 127.0.0.1 -j ACCEPT -m comment --comment "Traefik API - keepalived"
--A INPUT -p tcp --dport 8080 -s 172.16.86.21 -j ACCEPT -m comment --comment "Traefik API - vm-monitoring Prometheus"
+-A INPUT -p tcp --dport 8080 -s {{ vm_monitoring_ip }} -j ACCEPT -m comment --comment "Traefik API - vm-monitoring Prometheus"
 -A INPUT -p tcp --dport 8080 -j DROP -m comment --comment "Block direct Traefik API"
 
 # VRRP traffic between infra nodes

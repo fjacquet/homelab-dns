@@ -951,7 +951,17 @@
           [Time]
           NTP=ntp.metas.ch
           FallbackNTP=pool.ntp.org
-      notify: Restart timesyncd
+
+    - name: Enable and restart systemd-timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+    - name: Ensure NTP client mode is active
+      ansible.builtin.command: timedatectl set-ntp true
+      changed_when: false
 
     - name: Mask openipmi service (no IPMI hardware on Optiplex Micro — false alarm)
       ansible.builtin.systemd:
@@ -960,11 +970,10 @@
         daemon_reload: true
       failed_when: false
 
-  handlers:
-    - name: Restart timesyncd
-      ansible.builtin.systemd:
-        name: systemd-timesyncd
-        state: restarted
+    - name: Clear stale openipmi failed state
+      ansible.builtin.command: systemctl reset-failed openipmi
+      failed_when: false
+      changed_when: false
 
 ##############################################################################
 # Verification

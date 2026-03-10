@@ -901,106 +901,80 @@
 # #############################################################################
 # Phase 5 — Register hosts in Checkmk via REST API
 # #############################################################################
+# NOTE: The Checkmk REST API at http://vm_checkmk_ip:80/cmk/ is only accessible from
+# localhost inside vm-checkmk (Apache blocks external Basic Auth).
+# All API calls must be executed via: lxc exec vm-checkmk -- curl http://localhost/...
 - name: "MC Services — Register hosts in Checkmk"
   hosts: microcloud[0]
   gather_facts: false
   become: true
   tags: [mc_checkmk_hosts]
   tasks:
-    - name: Register each host in Checkmk
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/domain-types/host_config/collections/all"
-        method: POST
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body_format: json
-        body:
-          host_name: "{{ item.name }}"
-          folder: "/"
-          attributes:
-            ipaddress: "{{ item.ip }}"
-        status_code: [200, 201, 400]
-      failed_when: false
+    - name: Register each host in Checkmk (via lxc exec — API only accessible from localhost)
+      ansible.builtin.shell: |
+        lxc exec vm-checkmk -- curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -u 'cmkadmin:{{ vault_checkmk_password }}' \
+          -H 'Content-Type: application/json' \
+          -d '{"host_name":"{{ item.name }}","folder":"/","attributes":{"ipaddress":"{{ item.ip }}"}}' \
+          'http://localhost/cmk/check_mk/api/1.0/domain-types/host_config/collections/all'
       loop: "{{ checkmk_hosts }}"
       loop_control:
         label: "{{ item.name }} ({{ item.ip }})"
+      register: host_register_results
+      changed_when: host_register_results.stdout == "201"
+      failed_when: false
       no_log: true
 
     # Checkmk 2.3 requires the real ETag (not "*") for PUT — do GET first to retrieve it.
     # Use update_attributes (merge) not attributes (replace) to avoid clearing other attrs.
-    - name: Get current host config to retrieve ETag
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/objects/host_config/{{ item.name }}"
-        method: GET
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        status_code: [200, 404]
+    - name: Set ipaddress for each host (GET ETag → PUT update_attributes, via lxc exec)
+      ansible.builtin.shell: |
+        ETAG=$(lxc exec vm-checkmk -- curl -s -D - \
+          -u 'cmkadmin:{{ vault_checkmk_password }}' \
+          'http://localhost/cmk/check_mk/api/1.0/objects/host_config/{{ item.name }}' \
+          | grep -i '^ETag:' | awk '{print $2}' | tr -d '\r\n')
+        if [ -z "$ETAG" ]; then echo "NOETAG:{{ item.name }}"; exit 0; fi
+        lxc exec vm-checkmk -- curl -s -o /dev/null -w "%{http_code}" \
+          -X PUT \
+          -u 'cmkadmin:{{ vault_checkmk_password }}' \
+          -H 'Content-Type: application/json' \
+          -H "If-Match: ${ETAG}" \
+          -d '{"update_attributes":{"ipaddress":"{{ item.ip }}"}}' \
+          "http://localhost/cmk/check_mk/api/1.0/objects/host_config/{{ item.name }}"
+      loop: "{{ checkmk_hosts }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.ip }})"
+      register: ip_update_results
+      changed_when: ip_update_results.stdout in ["200", "204"]
       failed_when: false
       no_log: true
+
+    - name: Discover services on each host (via lxc exec)
+      ansible.builtin.shell: |
+        lxc exec vm-checkmk -- curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -u 'cmkadmin:{{ vault_checkmk_password }}' \
+          -H 'Content-Type: application/json' \
+          -d '{"host_name":"{{ item.name }}","mode":"refresh"}' \
+          'http://localhost/cmk/check_mk/api/1.0/domain-types/service_discovery_run/collections/all'
       loop: "{{ checkmk_hosts }}"
       loop_control:
         label: "{{ item.name }}"
-      register: host_get_results
-
-    - name: Update ipaddress for each existing host (merge-update, real ETag)
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/objects/host_config/{{ item.item.name }}"
-        method: PUT
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-          If-Match: "{{ item.etag | default('') }}"
-        body_format: json
-        body:
-          update_attributes:
-            ipaddress: "{{ item.item.ip }}"
-        status_code: [200, 204]
+      changed_when: false
       failed_when: false
       no_log: true
-      loop: "{{ host_get_results.results }}"
-      loop_control:
-        label: "{{ item.item.name }} ({{ item.item.ip }})"
-      when: item.status is defined and item.status == 200
 
-    - name: Discover services on each host
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/domain-types/service_discovery_run/collections/all"
-        method: POST
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body_format: json
-        body:
-          host_name: "{{ item.name }}"
-          mode: "refresh"
-        status_code: [200, 201, 302]
-      failed_when: false
-      loop: "{{ checkmk_hosts }}"
-      loop_control:
-        label: "{{ item.name }}"
-      no_log: true
-
-    - name: Activate Checkmk configuration changes
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/domain-types/activation_run/actions/activate-changes/invoke"
-        method: POST
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body_format: json
-        body:
-          force_foreign_changes: true
-        status_code: [200, 201, 302, 409]
+    - name: Activate Checkmk configuration changes (via lxc exec)
+      ansible.builtin.shell: |
+        lxc exec vm-checkmk -- curl -s -o /dev/null -w "%{http_code}" \
+          -X POST \
+          -u 'cmkadmin:{{ vault_checkmk_password }}' \
+          -H 'Content-Type: application/json' \
+          -d '{"force_foreign_changes":true}' \
+          'http://localhost/cmk/check_mk/api/1.0/domain-types/activation_run/actions/activate-changes/invoke'
+      register: activate_result
+      changed_when: activate_result.stdout in ["200", "201"]
       failed_when: false
       no_log: true
 
@@ -1148,6 +1122,15 @@
       - { vm: vm-checkmk, fqdn: "vm-checkmk.evlab.ch" }
       - { vm: vm-automation, fqdn: "vm-automation.evlab.ch" }
   tasks:
+    - name: Check cmk-agent-ctl is installed inside each VM
+      ansible.builtin.command: lxc exec {{ item.vm }} -- which cmk-agent-ctl
+      loop: "{{ checkmk_vm_hosts }}"
+      loop_control:
+        label: "{{ item.vm }}"
+      register: vm_ctl_installed
+      changed_when: false
+      failed_when: false
+
     - name: Check TLS registration status inside each VM
       ansible.builtin.command: lxc exec {{ item.vm }} -- cmk-agent-ctl status
       loop: "{{ checkmk_vm_hosts }}"
@@ -1196,6 +1179,11 @@
           changed_when: true
           no_log: true
 
+        - name: Restart Checkmk site to force TLS renegotiation (loopback self-monitoring)
+          ansible.builtin.command: lxc exec vm-checkmk -- omd restart cmk
+          failed_when: false
+          changed_when: true
+
     - name: Restart cmk-agent-ctl daemon inside all VMs (reload cert state)
       ansible.builtin.command: >-
         lxc exec {{ item.vm }} -- systemctl restart cmk-agent-ctl-daemon.service
@@ -1204,6 +1192,22 @@
         label: "{{ item.vm }}"
       failed_when: false
       changed_when: true
+
+    - name: Verify TLS registration status after fixes
+      ansible.builtin.command: lxc exec {{ item.vm }} -- cmk-agent-ctl status
+      loop: "{{ checkmk_vm_hosts }}"
+      loop_control:
+        label: "{{ item.vm }}"
+      register: vm_ctl_verify
+      changed_when: false
+      failed_when: false
+
+    - name: Show TLS registration status
+      ansible.builtin.debug:
+        msg: "{{ item.item.vm }}: {{ item.stdout | default('no output') | truncate(200) }}"
+      loop: "{{ vm_ctl_verify.results }}"
+      loop_control:
+        label: "{{ item.item.vm }}"
 
 # #############################################################################
 # Phase 8 — Checkmk ↔ Grafana integration (automation user + datasource)
