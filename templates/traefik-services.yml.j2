@@ -55,12 +55,14 @@ http:
       insecureSkipVerify: true
 {% endif %}
 
-# --- TLS passthrough for LXD Web UI (mTLS required) ---
+# --- TLS passthrough for LXD Web UI ---
+# Dedicated entrypoint :8443 has no TLS config → pure TCP passthrough.
+# Using websecure (:443) breaks mTLS because Traefik terminates the wildcard cert first.
 tcp:
   routers:
     lxd:
-      rule: "HostSNI(`lxd.{{ domain }}`)"
-      entryPoints: [websecure]
+      rule: "HostSNI(`*`)"
+      entryPoints: [lxd]
       service: lxd
       tls:
         passthrough: true

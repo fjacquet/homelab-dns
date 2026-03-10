@@ -12,6 +12,8 @@ entryPoints:
           scheme: https
   websecure:
     address: ":443"
+  lxd:
+    address: ":8443"  # LXD Web UI — pure TCP, no TLS termination (passthrough only)
 
 providers:
   file:
