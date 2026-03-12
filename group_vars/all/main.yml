@@ -193,6 +193,8 @@ nfs_mounts:
 node_exporter_port: 9100
 cadvisor_port: 9101
 wireguard_exporter_port: 9586
+snmp_exporter_port: 9116
+snmp_community: public
 
 # === Docker ===
 docker_base_dir: /opt/docker
@@ -212,10 +214,10 @@ checkmk_automation_secret: "{{ vault_checkmk_automation_secret }}"
 checkmk_hosts:
   - { name: "infra1.evlab.ch", ip: "172.16.86.11" }
   - { name: "infra2.evlab.ch", ip: "172.16.86.12" }
-  - { name: "opt3.evlab.ch", ip: "172.16.86.25" }       # macvlan-host IP (physical .13 unreachable from vm-checkmk)
-  - { name: "opt4.evlab.ch", ip: "172.16.86.24" }       # macvlan-host IP (physical .14 unreachable from vm-checkmk)
+  - { name: "opt3.evlab.ch", ip: "172.16.86.13" }        # vm-checkmk (opt4) → opt3 at .13 works (different hosts)
+  - { name: "opt4.evlab.ch", ip: "172.16.86.24" }       # macvlan-host IP (vm-checkmk is ON opt4, can't reach .14)
   - { name: "opt5.evlab.ch", ip: "172.16.86.15" }
-  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.25" } # macvlan-host IP (same host as opt3)
+  - { name: "mc-node-01.evlab.ch", ip: "172.16.86.13" } # same host as opt3
   - { name: "mc-node-02.evlab.ch", ip: "172.16.86.24" } # macvlan-host IP (same host as opt4)
   - { name: "mc-node-03.evlab.ch", ip: "172.16.86.15" }
   - { name: "vm-monitoring.evlab.ch", ip: "172.16.86.21" }
