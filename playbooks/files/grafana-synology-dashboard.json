@@ -1,0 +1,357 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["synology", "nas", "snmp"],
+  "time": {"from": "now-3h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Synology NAS - SNMP",
+  "uid": "synology-nas-snmp",
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource",
+        "label": "Datasource"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "title": "System Health",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"1": {"color": "green", "index": 0, "text": "Normal"}}, "type": "value"},
+            {"options": {"2": {"color": "red", "index": 1, "text": "Failed"}}, "type": "value"}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 2}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "auto"},
+      "title": "System Status",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_system_status", "legendFormat": "System", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"1": {"color": "green", "index": 0, "text": "Normal"}}, "type": "value"},
+            {"options": {"2": {"color": "red", "index": 1, "text": "Failed"}}, "type": "value"}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 2}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "id": 3,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "auto"},
+      "title": "Power Status",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_power_status", "legendFormat": "Power", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"1": {"color": "green", "index": 0, "text": "Normal"}}, "type": "value"},
+            {"options": {"2": {"color": "red", "index": 1, "text": "Failed"}}, "type": "value"}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 2}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "id": 4,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "auto"},
+      "title": "CPU Fan Status",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_cpu_fan_status", "legendFormat": "Fan", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "id": 5,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto"},
+      "title": "Memory Used %",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "100 * (1 - synology_memory_available_real / synology_memory_total_real)", "legendFormat": "Memory Used %", "instant": true}]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 5},
+      "id": 10,
+      "title": "CPU",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10},
+          "unit": "percent",
+          "min": 0
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 6},
+      "id": 11,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_cpu_user_percentage", "legendFormat": "User"},
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_cpu_system_percentage", "legendFormat": "System"},
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_cpu_iowait_percentage", "legendFormat": "IO Wait"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "id": 20,
+      "title": "Memory",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10},
+          "unit": "deckbytes",
+          "min": 0
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "id": 21,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Memory (KB)",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_memory_total_real", "legendFormat": "Total"},
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_memory_available_real", "legendFormat": "Available"},
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_memory_total_real - synology_memory_available_real", "legendFormat": "Used"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "id": 22,
+      "options": {"orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "title": "Memory Utilization",
+      "type": "gauge",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "100 * (1 - synology_memory_available_real / synology_memory_total_real)", "legendFormat": "Used %", "instant": true}]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "id": 30,
+      "title": "Disks",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2},
+          "unit": "celsius",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 31,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Disk Temperatures",
+      "type": "timeseries",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_disk_temperature", "legendFormat": "Disk {{diskID}}"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"1": {"color": "green", "index": 0, "text": "Normal"}}, "type": "value"},
+            {"options": {"2": {"color": "blue", "index": 1, "text": "Initialized"}}, "type": "value"},
+            {"options": {"3": {"color": "yellow", "index": 2, "text": "Not Init"}}, "type": "value"},
+            {"options": {"4": {"color": "orange", "index": 3, "text": "SysPartFailed"}}, "type": "value"},
+            {"options": {"5": {"color": "red", "index": 4, "text": "Crashed"}}, "type": "value"}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 3}]}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 32,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "Disk Status",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_disk_status", "legendFormat": "Disk {{diskID}}", "instant": true}]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 32},
+      "id": 40,
+      "title": "RAID & Volumes",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {"options": {"1": {"color": "green", "index": 0, "text": "Normal"}}, "type": "value"},
+            {"options": {"11": {"color": "orange", "index": 1, "text": "Degraded"}}, "type": "value"},
+            {"options": {"12": {"color": "red", "index": 2, "text": "Crashed"}}, "type": "value"}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 11}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 33},
+      "id": 41,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "RAID Status",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_raid_status", "legendFormat": "RAID {{raidID}}", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "unit": "bytes",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue"}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 9, "x": 6, "y": 33},
+      "id": 42,
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "center", "textMode": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "title": "RAID Free Space",
+      "type": "stat",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_raid_free_bytes", "legendFormat": "RAID {{raidID}} Free", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "unit": "bytes",
+          "min": 0,
+          "max": 100,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}]}
+        }
+      },
+      "gridPos": {"h": 8, "w": 9, "x": 15, "y": 33},
+      "id": 43,
+      "options": {"orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": false, "showThresholdMarkers": true},
+      "title": "Volume Utilization %",
+      "type": "gauge",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "100 * synology_volume_used_bytes / synology_volume_total_bytes", "legendFormat": "Vol {{volumeID}}", "instant": true}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 4, "w": 15, "x": 0, "y": 37},
+      "id": 44,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Volume Used / Total",
+      "type": "timeseries",
+      "targets": [
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_volume_used_bytes", "legendFormat": "Used Vol {{volumeID}}"},
+        {"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "synology_volume_total_bytes", "legendFormat": "Total Vol {{volumeID}}"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 41},
+      "id": 50,
+      "title": "Network",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10},
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 42},
+      "id": 51,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Network In (bytes/s)",
+      "type": "timeseries",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "irate(synology_if_in_octets[5m])", "legendFormat": "IF {{ifIndex}} In"}]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"lineWidth": 2, "fillOpacity": 10},
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 42},
+      "id": 52,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
+      "title": "Network Out (bytes/s)",
+      "type": "timeseries",
+      "targets": [{"datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "irate(synology_if_out_octets[5m])", "legendFormat": "IF {{ifIndex}} Out"}]
+    }
+  ]
+}

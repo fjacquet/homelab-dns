@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-16 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
+17 key decisions made during the homelab DNS/HTTPS/VPN infrastructure project.
 
 ```mermaid
 graph TD
@@ -20,6 +20,8 @@ graph TD
     ADR014["ADR-014\nSeparate OS + Container\nPatch Playbooks"]
     ADR015["ADR-015\nAnsible Webhook\nEngine"]
     ADR016["ADR-016\nSecurity\nHardening"]
+    ADR017["ADR-017\nLXD VMs over\nContainers"]
+    ADR018["ADR-018\nDisable Synology\nProxy Server"]
 
     INFRA["Infrastructure\nLayer"]
     NET["Network\nServices"]
@@ -33,7 +35,7 @@ graph TD
     MON --> ADR008
     STORE --> ADR005 & ADR009
     TOOLING --> ADR010 & ADR011 & ADR012 & ADR013
-    OPS --> ADR014 & ADR015 & ADR016
+    OPS --> ADR014 & ADR015 & ADR016 & ADR017 & ADR018
 
     style INFRA fill:#e6f3ff,stroke:#0078D4,stroke-width:2px
     style NET fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
@@ -61,3 +63,5 @@ graph TD
 | [ADR-014](adr-014-patch-management-playbooks.md) | Separate OS and Container Patch Management Playbooks | ✅ Accepted |
 | [ADR-015](adr-015-ansible-webhook-engine.md) | Ansible Webhook Engine (FastAPI + Docker) | ✅ Accepted |
 | [ADR-016](adr-016-security-hardening.md) | Security Hardening and Idempotency Fixes | ✅ Accepted |
+| [ADR-017](adr-017-lxd-vms-over-containers.md) | LXD VMs Instead of Containers for MicroCloud Services | ✅ Accepted |
+| [ADR-018](adr-018-disable-synology-proxy.md) | Disable Synology LAN Proxy Server (Squid) | ✅ Accepted |

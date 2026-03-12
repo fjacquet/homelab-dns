@@ -395,6 +395,95 @@
           Add DHCP reservation with MAC: {{ vm_monitoring_mac.stdout }}
 
 # #############################################################################
+# Phase 1.5 — SNMP exporter for Synology NAS (installed in vm-monitoring)
+# #############################################################################
+- name: "MC Services — SNMP exporter (Synology NAS)"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_snmp]
+  vars:
+    vm_name: vm-monitoring
+  tasks:
+    - name: Install prometheus-snmp-exporter in vm-monitoring
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "dpkg -l prometheus-snmp-exporter 2>/dev/null | grep -q prometheus-snmp-exporter ||
+        (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y prometheus-snmp-exporter)"
+      changed_when: true
+
+    - name: Render Synology SNMP config to opt3 tmp
+      ansible.builtin.template:
+        src: snmp-synology.yml.j2
+        dest: /tmp/snmp-synology.yml
+        mode: "0644"
+
+    - name: Push SNMP config into vm-monitoring
+      ansible.builtin.command: lxc file push /tmp/snmp-synology.yml vm-monitoring/etc/prometheus/snmp.yml
+      changed_when: true
+
+    - name: Configure snmp_exporter to use custom config
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} --
+        bash -c "sed -i 's|^ARGS=.*|ARGS=\"--config.file=/etc/prometheus/snmp.yml\"|' /etc/default/prometheus-snmp-exporter || true"
+      changed_when: true
+
+    - name: Enable and restart snmp_exporter
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- bash -c
+        "systemctl enable prometheus-snmp-exporter && systemctl restart prometheus-snmp-exporter"
+      changed_when: true
+
+    - name: Verify snmp_exporter is listening on port {{ snmp_exporter_port }}
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- curl -s --connect-timeout 5
+        -o /dev/null -w "%{http_code}"
+        "http://localhost:{{ snmp_exporter_port }}/snmp?target={{ nas_ip }}&module=synology"
+      register: snmp_check
+      changed_when: false
+      failed_when: false
+
+    - name: Show snmp_exporter health
+      ansible.builtin.debug:
+        msg: "snmp_exporter HTTP status: {{ snmp_check.stdout }} (200=OK, anything else=check snmp.yml)"
+
+# #############################################################################
+# Phase 1.6 — Grafana dashboards (provisioned via file)
+# #############################################################################
+- name: "MC Services — Deploy Grafana dashboards"
+  hosts: microcloud[0]
+  become: true
+  tags: [mc_grafana_dashboards]
+  vars:
+    vm_name: vm-monitoring
+  tasks:
+    - name: Ensure Grafana dashboard directory exists in VM
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- mkdir -p /var/lib/grafana/dashboards
+      changed_when: false
+
+    - name: Copy Synology SNMP dashboard to opt3 tmp
+      ansible.builtin.copy:
+        src: grafana-synology-dashboard.json
+        dest: /tmp/grafana-synology-dashboard.json
+        mode: "0644"
+
+    - name: Push Synology dashboard into vm-monitoring
+      ansible.builtin.command: >-
+        lxc file push /tmp/grafana-synology-dashboard.json
+        {{ vm_name }}/var/lib/grafana/dashboards/synology.json
+      changed_when: true
+
+    - name: Set dashboard file ownership inside VM (grafana:grafana)
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- chown grafana:grafana /var/lib/grafana/dashboards/synology.json
+      changed_when: true
+
+    - name: Reload Grafana (provisioning picks up new dashboard within 30s automatically)
+      ansible.builtin.command: >-
+        lxc exec {{ vm_name }} -- systemctl reload-or-restart grafana-server
+      changed_when: true
+
+# #############################################################################
 # Phase 2 — Checkmk VM — 172.16.86.22
 # #############################################################################
 - name: "MC Services — Checkmk VM"

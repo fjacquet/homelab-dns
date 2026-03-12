@@ -145,6 +145,26 @@
               - targets:
                   - {{ dns_secondary_ip }}:{{ wireguard_exporter_port }}
 
+          # --- Synology NAS (SNMP exporter proxy) ---
+          - job_name: snmp-synology
+            metrics_path: /snmp
+            params:
+              module: [synology]
+              auth: [public_v2]
+            static_configs:
+              - targets:
+                  - {{ nas_ip }}
+                labels:
+                  role: nas
+                  device: ds923plus
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_target
+              - source_labels: [__param_target]
+                target_label: instance
+              - target_label: __address__
+                replacement: localhost:{{ snmp_exporter_port }}
+
           # --- Prometheus self ---
           - job_name: prometheus
             static_configs:
