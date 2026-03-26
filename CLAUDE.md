@@ -57,6 +57,16 @@ ssh fjacquet@172.16.86.13 "sudo microcloud init"  # interactive, must run manual
 ansible-playbook playbooks/microcloud-services.yml
 ansible-playbook playbooks/microcloud-vms-monitoring.yml  # node_exporter + Prometheus scrape
 
+# MicroCloud service tags (microcloud-services.yml)
+ansible-playbook playbooks/microcloud-services.yml --tags mc_macvlan_host  # macvlan bridge (opt3/opt4)
+ansible-playbook playbooks/microcloud-services.yml --tags mc_checkmk_tune  # memory rules + discovery
+ansible-playbook playbooks/microcloud-services.yml --tags mc_checkmk_tls   # agent TLS registration
+ansible-playbook playbooks/microcloud-services.yml --tags mc_snmp          # SNMP exporter in vm-monitoring
+
+# Checkmk CLI (run from opt3 / mc-node-01)
+lxc exec vm-checkmk -- su - cmk -s /bin/bash -c "cmk -II hostname.evlab.ch"  # full rediscovery
+lxc exec vm-checkmk -- su - cmk -s /bin/bash -c "cmk -O"                     # reload core config
+
 # Vault management
 ansible-vault edit group_vars/all/vault.yml
 ```
@@ -77,9 +87,8 @@ ansible-vault edit group_vars/all/vault.yml
 | `site.yml` | `dns_servers` | All infra: DNS, DHCP, Traefik, keepalived, WireGuard, monitoring exporters |
 | `update.yml` | `dns_servers:microcloud` | Patch all nodes (serial), reboot if needed, verify services |
 | `update-containers.yml` | `dns_servers` + `microcloud[0]` | Pull latest container images and recreate (no reboot) |
-| `microcloud-services.yml` Phase 3 | `microcloud[0]` | n8n + ansible-webhook automation stack (NFS-backed) |
 | `microcloud-prepare.yml` | `microcloud` | Base setup, snaps, NFS mounts, node_exporter |
-| `microcloud-services.yml` | `microcloud[0]` (mc-node-01) | Prometheus, Grafana, Checkmk server + agents |
+| `microcloud-services.yml` | `microcloud[0]` (mc-node-01) | LXD VMs + macvlan networking + Prometheus/Grafana/Checkmk/n8n |
 | `microcloud-vms-monitoring.yml` | `microcloud[0]` | Install node_exporter in VMs + add `node-vms` Prometheus job |
 
 ### Service Architecture
@@ -87,7 +96,8 @@ ansible-vault edit group_vars/all/vault.yml
 - **Traefik HA**: VIP `172.16.86.20` via keepalived VRRP. Wildcard cert `*.evlab.ch` via Infomaniak DNS-01 challenge. Traefik runs on both infra nodes; primary is MASTER. ACME cert synced from primary to secondary via hourly cron (`sync-acme.sh`).
 - **Technitium DNS**: Docker (`network_mode: host`) on both nodes. Primary/secondary zone replication via zone transfer. DHCP split-scope: infra1 handles `.100-.179`, infra2 handles `.180-.200`.
 - **WireGuard**: Native kernel module (not Docker) on infra2 only. Port 51820 UDP. Internal subnet `10.13.13.0/24`. Client configs + QR codes at `/etc/wireguard/clients/` on infra2.
-- **Monitoring**: Prometheus + Grafana on mc-node-01 (`172.16.86.13`). Checkmk server also on mc-node-01. Node exporters, cAdvisor, and WireGuard exporter on infra nodes.
+- **Monitoring**: Prometheus + Grafana in `vm-monitoring` (`172.16.86.21`). Checkmk CRE in `vm-checkmk` (`172.16.86.22`). Both are LXD VMs on mc-node-01; accessed via `lxc exec <vm> -- <cmd>`. Node exporters, cAdvisor, WireGuard exporter, and SNMP exporter on infra nodes / vm-monitoring.
+- **macvlan-host bridge**: Each MicroCloud node runs a systemd service that creates a macvlan interface so the host can reach its own LXD VMs (macvlan isolation prevents direct host↔VM traffic). Uses `/32` + explicit host routes per VM — **never /24** (causes competing kernel route for 172.16.86.0/24 that breaks LXD cluster quorum).
 
 ### Variables
 
@@ -107,10 +117,19 @@ All Jinja2 templates in `templates/`. Key ones:
 - `keepalived.conf.j2`: VRRP config (priority differs per host via `inventory_hostname` checks)
 - `wg0.conf.j2`: WireGuard server config; `wg-client.conf.j2`: per-peer client configs
 - `netplan-infra.yml.j2`: Network config for infra nodes (NIC: `enp0s31f6`)
+- `netplan-mc.yml.j2`: Network config for MicroCloud nodes (no macvlan stanza — macvlan-host is managed by systemd service, not netplan)
 
 ### Primary-Only vs Both-Node Logic
 
 Several tasks use `when: inventory_hostname in groups['dns_primary']` or `groups['dns_secondary']` to differentiate behavior. Traefik directories, DDNS cron, and ACME sync only run on primary; WireGuard only on secondary.
+
+### LXD VMs (on mc-node-01 / opt3)
+
+| VM | IP | Services |
+|---|---|---|
+| vm-monitoring | 172.16.86.21 | Prometheus (9090), Grafana (3000), SNMP exporter (9116) |
+| vm-checkmk | 172.16.86.22 | Checkmk CRE (5000 internal) |
+| vm-automation | 172.16.86.23 | n8n, ansible-webhook |
 
 ### Port Reference
 
@@ -118,10 +137,23 @@ Several tasks use `when: inventory_hostname in groups['dns_primary']` or `groups
 |---|---|---|
 | 5380 | Technitium Web UI | Firewalled — only localhost + infra1→infra2 |
 | 8080 | Traefik API | Firewalled — only localhost (keepalived health check) |
-| 9100 | node_exporter | All nodes |
+| 9090 | Prometheus | vm-monitoring (172.16.86.21) |
+| 3000 | Grafana | vm-monitoring |
+| 9116 | SNMP exporter | vm-monitoring (proxies Synology NAS SNMP) |
+| 9100 | node_exporter | All nodes + VMs |
 | 9101 | cAdvisor | Infra nodes |
 | 9586 | WireGuard exporter | infra2 only |
 | 51820/UDP | WireGuard | infra2 only |
+
+### Critical Gotchas
+
+- **macvlan-host must use /32**: A /24 prefix creates a competing kernel route for 172.16.86.0/24 that shadows `enp0s31f6` and breaks LXD cluster quorum (dqlite "no available leader"). Always use `/32` + `ip route replace <vm-ip>/32 dev macvlan-host`.
+
+- **Checkmk `memory_linux` ruleset is not in the REST API**: It's a legacy `checkgroup_parameters` ruleset. Write rules directly to `/omd/sites/cmk/etc/check_mk/conf.d/memory_tuning.mk` inside vm-checkmk, then `cmk -O` to reload. The REST API returns 400 "Unknown ruleset" silently when `failed_when: false`.
+
+- **`site.yml --check` fails at "Extract API token"**: Check mode skips the Technitium restart handler, so `technitium_login` has no `.content`. This is a check-mode artifact only — not a real failure.
+
+- **LXD VM netplan**: Run `netplan apply` inside a VM via `lxc exec <vm> -- netplan apply`. Static IPs are configured inside the VM; host-side is macvlan only.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
