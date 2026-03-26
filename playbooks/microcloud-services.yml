@@ -1158,48 +1158,34 @@
         label: "{{ item.name }}"
       no_log: true
 
-    - name: Create rule — raise shared memory thresholds for MicroCloud nodes
-      # LXD containers use tmpfs which inflates shared memory counters on MicroCloud hosts.
+    - name: Write memory_linux rule — raise shared memory thresholds for MicroCloud nodes
+      # LXD VMs use shared memory for QEMU/virtio, inflating shmem counters.
       # Default thresholds (20%/30%) are too low; raise shm to 80%/95%.
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/domain-types/rule/collections/all"
-        method: POST
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body_format: json
-        body:
-          ruleset: "memory_percentage_used"
-          folder: "/"
-          properties:
-            description: "Raise shared memory thresholds for LXD/MicroCloud nodes"
-            disabled: false
-          value_raw: "{'levels_shm': ('perc_used', (80.0, 95.0))}"
-          conditions:
-            host_name:
-              match_on: "{{ checkmk_microcloud_hosts }}"
-              operator: "one_of"
-        status_code: [200, 201, 400]
-      failed_when: false
-      no_log: true
+      # memory_linux is a legacy checkgroup_parameters ruleset, not exposed by REST API.
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat <<'EOF' | lxc exec vm-checkmk -- tee /omd/sites/cmk/etc/check_mk/conf.d/memory_tuning.mk
+        # Written by Ansible — microcloud-services.yml mc_checkmk_tune
+        # Raise shared memory check thresholds for MicroCloud nodes.
+        # LXD VMs inflate shmem counters; defaults (20%/30%) cause false alarms.
+        globals().setdefault('checkgroup_parameters', {})
 
-    - name: Activate Checkmk configuration changes
-      ansible.builtin.uri:
-        url: "{{ checkmk_api_url }}/domain-types/activation_run/actions/activate-changes/invoke"
-        method: POST
-        url_username: "{{ checkmk_automation_user }}"
-        url_password: "{{ checkmk_automation_secret }}"
-        force_basic_auth: true
-        headers:
-          Content-Type: "application/json"
-        body_format: json
-        body:
-          force_foreign_changes: true
-        status_code: [200, 201, 302, 409]
-      failed_when: false
-      no_log: true
+        checkgroup_parameters.setdefault('memory_linux', [])
+
+        checkgroup_parameters['memory_linux'] = [
+        {'id': '4beee1c2-ff04-4563-bb99-2f8d1045622b',
+         'value': {'levels_shm': ('perc_used', (80.0, 95.0))},
+         'condition': {'host_name': {{ checkmk_microcloud_hosts | to_json }}},
+         'options': {'description': 'Raise shared memory thresholds for LXD/MicroCloud nodes'}},
+        ] + checkgroup_parameters['memory_linux']
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Reload Checkmk core to apply configuration changes
+      ansible.builtin.command: "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk -O'"
+      changed_when: true
 
 # #############################################################################
 # Phase 7 — Register Checkmk agent TLS on all monitored nodes

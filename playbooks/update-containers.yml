@@ -82,19 +82,6 @@
         recreate: always
         pull: never
 
-    - name: Pull latest Checkmk image
-      community.docker.docker_image_pull:
-        name: checkmk/check-mk-raw
-        tag: latest
-
-    - name: Recreate Checkmk container with new image
-      community.docker.docker_container:
-        name: checkmk
-        image: checkmk/check-mk-raw:latest
-        state: started
-        recreate: true
-        restart_policy: unless-stopped
-        ports:
-          - "8090:5000"
-        volumes:
-          - "{{ checkmk_dir }}:/omd/sites"
+    - name: Restart Checkmk OMD site in LXD VM
+      ansible.builtin.command: "lxc exec vm-checkmk -- omd restart cmk"
+      changed_when: true
