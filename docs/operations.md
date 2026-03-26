@@ -64,3 +64,40 @@ done
 ```
 
 Expected output: `NTP service: active` and `System clock synchronized: yes`.
+
+## Check MicroCloud / LXD Cluster Status
+
+```bash
+# Cluster health (all 3 nodes should show ONLINE)
+ssh fjacquet@172.16.86.13 "lxc cluster list"
+
+# List all LXD VMs
+ssh fjacquet@172.16.86.13 "lxc list"
+
+# macvlan-host routing (must show enp0s31f6, NOT macvlan-host, for cross-node traffic)
+ssh fjacquet@172.16.86.13 "ip route get 172.16.86.14"
+ssh fjacquet@172.16.86.14 "ip route get 172.16.86.13"
+
+# macvlan-host service status
+for h in 172.16.86.13 172.16.86.14 172.16.86.15; do
+  echo "=== $h ==="; ssh fjacquet@$h "systemctl is-active macvlan-host.service && ip addr show macvlan-host | grep inet"
+done
+```
+
+## Check Monitoring Stack (Prometheus / Grafana / Checkmk)
+
+```bash
+# Prometheus targets (all should be UP)
+curl -s http://172.16.86.21:9090/api/v1/targets | python3 -c \
+  "import json,sys; d=json.load(sys.stdin); [print(t['labels'].get('job','?'), t['health']) for t in d['data']['activeTargets']]"
+
+# Grafana health
+curl -s http://172.16.86.21:3000/api/health | python3 -m json.tool
+
+# Checkmk — list hosts with problems
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c \
+  'cmk -v --check mc-node-01.evlab.ch 2>&1 | grep -E \"WARN|CRIT|!!\"'"
+
+# SNMP exporter health (proxies Synology NAS)
+curl -s http://172.16.86.21:9116/metrics | grep snmp_up
+```

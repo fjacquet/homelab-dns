@@ -81,6 +81,8 @@ LXD profile `bridged-lan` uses `nictype=macvlan` on `enp0s31f6`. Each VM gets a 
 
 VMs are directly reachable on the LAN — no port proxy devices needed on the host.
 
+**Host-to-VM access**: macvlan isolation prevents the physical host from reaching its own VMs directly. A dedicated `macvlan-host` bridge interface (managed by systemd, see ADR-019) provides host↔VM connectivity using `/32` addresses and explicit host routes.
+
 ## Service Installation
 
 | Service | Method |
@@ -105,3 +107,4 @@ VMs are directly reachable on the LAN — no port proxy devices needed on the ho
 - DHCP reservations required after first boot (MAC captured via `lxc config get <vm> volatile.eth0.hwaddr`)
 - `update.yml` should evacuate/restore VMs around MicroCloud node reboots (same as containers)
 - ansible-webhook secrets (`id_rsa`, `vault_pass`) must be pushed manually into vm-automation
+- macvlan-host networking uses /32 addresses (not /24) to avoid competing kernel routes — see ADR-019

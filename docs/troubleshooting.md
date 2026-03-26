@@ -142,3 +142,72 @@ ssh fjacquet@172.16.86.11 "docker restart technitium-dns"
 ssh fjacquet@172.16.86.11 "ss -tlnp | grep ':53 '"
 # Should now show 0.0.0.0:53
 ```
+
+---
+
+## LXD Cluster Quorum Lost ("no available dqlite leader")
+
+**Symptom:** `lxc cluster list` or `lxc list` fails with "no available dqlite leader server found" on one MicroCloud node.
+
+**Root cause (most likely):** The `macvlan-host` interface has a `/24` address, creating a competing kernel route for `172.16.86.0/24` that takes priority over `enp0s31f6`. The affected node cannot reach cluster peers on port 8443.
+
+**Diagnose:**
+```bash
+# On the failing node — should say "dev enp0s31f6", NOT "dev macvlan-host"
+ssh fjacquet@172.16.86.13 "ip route get 172.16.86.14"
+
+# Check macvlan-host address prefix
+ssh fjacquet@172.16.86.13 "ip addr show macvlan-host"
+# If it shows /24, that is the bug. It must be /32.
+```
+
+**Fix:**
+```bash
+# Immediate: remove the /24 address and add /32
+ssh fjacquet@172.16.86.13 "sudo ip addr del 172.16.86.25/24 dev macvlan-host"
+
+# Redeploy the correct service
+ansible-playbook playbooks/microcloud-services.yml --tags mc_macvlan_host
+```
+
+After fixing, wait ~30 seconds for LXD to reconnect to dqlite, then verify:
+```bash
+ssh fjacquet@172.16.86.13 "lxc cluster list"
+# Expected: all 3 nodes ONLINE
+```
+
+---
+
+## Checkmk Memory WARN/CRIT on MicroCloud Nodes (False Alarm)
+
+**Symptom:** Checkmk reports Memory WARN/CRIT for `Shared memory` on mc-node-01/02/03. Default thresholds are 20%/30%, but LXD VMs use shared memory (QEMU/virtio) inflating the counter to 30-50%+.
+
+**Fix:** The `memory_tuning.mk` rule raises thresholds to 80%/95% for MicroCloud nodes. If missing:
+
+```bash
+# Check if file exists inside vm-checkmk
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- ls /omd/sites/cmk/etc/check_mk/conf.d/memory_tuning.mk"
+
+# Reapply via Ansible
+ansible-playbook playbooks/microcloud-services.yml --tags mc_checkmk_tune
+```
+
+**Note:** The `memory_linux` ruleset is NOT exposed by the Checkmk REST API (legacy `checkgroup_parameters` ruleset). Rules must be written directly to `/omd/sites/cmk/etc/check_mk/conf.d/memory_tuning.mk` inside vm-checkmk and activated with `cmk -O`.
+
+---
+
+## LXD VM Gets DHCP IP Instead of Static
+
+**Symptom:** An LXD VM (e.g. vm-monitoring) has a random `.180-.200` DHCP address instead of its assigned static IP (`.21`/`.22`/`.23`).
+
+**Cause:** The netplan static IP tasks run inside a `when: vm_exists.rc != 0` block — they only execute during VM creation. If the VM already existed when the playbook ran, static IP was never configured.
+
+**Fix:**
+```bash
+# Apply static IP manually via lxc exec (example for vm-monitoring)
+ssh fjacquet@172.16.86.13 "lxc exec vm-monitoring -- rm -f /etc/netplan/50-cloud-init.yaml"
+ssh fjacquet@172.16.86.13 "lxc exec vm-monitoring -- netplan apply"
+
+# Or redeploy the full service (will reconfigure netplan inside VMs)
+ansible-playbook playbooks/microcloud-services.yml --tags mc_vm_monitoring
+```

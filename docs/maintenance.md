@@ -32,11 +32,12 @@ ansible-playbook -i inventory.yml update-containers.yml --limit opt1
 
 **Containers updated:**
 
-| Host | Container |
-|------|-----------|
-| infra1, infra2 | Technitium, Traefik, cAdvisor |
-| mc-node-01 | Prometheus, Grafana, Checkmk |
-| All 5 nodes | node_exporter binary |
+| Host | Service | Method |
+|------|---------|--------|
+| infra1, infra2 | Technitium, Traefik, cAdvisor | Docker containers |
+| vm-monitoring (172.16.86.21) | Prometheus, Grafana, SNMP exporter | systemd (native apt) |
+| vm-checkmk (172.16.86.22) | Checkmk CRE | omd restart cmk |
+| All 5 nodes | node_exporter binary | Binary updated in-place |
 
 To upgrade `node_exporter` to a new version, bump `node_exporter_version` in `group_vars/all/main.yml`, then run `update-containers.yml`.
 
@@ -101,3 +102,28 @@ Nightly backup cron runs at 02:00 on both infra nodes, storing to Synology NAS:
 ```bash
 ssh fjacquet@172.16.86.10 "ls -lh /volume1/backups/infra/"
 ```
+
+## Checkmk Operations
+
+Checkmk runs as an OMD site (`cmk`) inside `vm-checkmk` (`172.16.86.22`), accessed via `lxc exec` from mc-node-01.
+
+```bash
+# Run service discovery on a host
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk -II hostname.evlab.ch'"
+
+# Check for unmonitored services
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk --check-discovery hostname.evlab.ch'"
+
+# Reload core config (after editing .mk files)
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk -O'"
+
+# Run full discovery on all hosts
+for host in mc-node-01.evlab.ch mc-node-02.evlab.ch mc-node-03.evlab.ch \
+            vm-monitoring.evlab.ch vm-checkmk.evlab.ch vm-automation.evlab.ch \
+            infra1.evlab.ch infra2.evlab.ch ds923fj; do
+  ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk -II $host'"
+done
+ssh fjacquet@172.16.86.13 "lxc exec vm-checkmk -- su - cmk -s /bin/bash -c 'cmk -O'"
+```
+
+**Adding custom check parameters** (e.g. memory thresholds): Write `.mk` files to `/omd/sites/cmk/etc/check_mk/conf.d/` inside vm-checkmk, then run `cmk -O`. The REST API only exposes a subset of rulesets — legacy `checkgroup_parameters` (like `memory_linux`) must be written directly.
