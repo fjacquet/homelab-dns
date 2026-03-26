@@ -132,6 +132,15 @@
   become: true
   tags: [mc_nfs]
   tasks:
+    - name: Remove legacy /mnt and orphan fstab entries
+      ansible.posix.mount:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /mnt/datastore
+        - /mnt/isofiles
+        - /opt/lxd-storage
+
     - name: Check if NFS mount points exist
       ansible.builtin.stat:
         path: "{{ item.mountpoint }}"

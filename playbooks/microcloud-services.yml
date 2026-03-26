@@ -165,36 +165,40 @@
           until: vm_agent.rc == 0
           changed_when: false
 
-        - name: Remove cloud-init default netplan (disables DHCP)
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
-          changed_when: true
+    - name: Remove cloud-init default netplan (disables DHCP)
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+      changed_when: true
 
-        - name: Configure static IP via netplan
-          ansible.builtin.shell: |
-            set -o pipefail
-            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
-            network:
-              version: 2
-              ethernets:
-                enp5s0:
-                  dhcp4: false
-                  addresses:
-                    - {{ vm_ip }}/24
-                  routes:
-                    - to: default
-                      via: {{ gateway }}
-                  nameservers:
-                    addresses:
-                      - {{ dns_primary_ip }}
-                      - {{ dns_secondary_ip }}
-            NETPLAN
-          args:
-            executable: /bin/bash
-          changed_when: true
+    - name: Configure static IP via netplan
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+        network:
+          version: 2
+          ethernets:
+            enp5s0:
+              dhcp4: false
+              addresses:
+                - {{ vm_ip }}/24
+              routes:
+                - to: default
+                  via: {{ gateway }}
+              nameservers:
+                addresses:
+                  - {{ dns_primary_ip }}
+                  - {{ dns_secondary_ip }}
+        NETPLAN
+      args:
+        executable: /bin/bash
+      changed_when: true
 
-        - name: Apply netplan
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
-          changed_when: true
+    - name: Fix netplan file permissions
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- chmod 600 /etc/netplan/50-static.yaml"
+      changed_when: true
+
+    - name: Apply netplan
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+      changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -523,36 +527,40 @@
           until: vm_agent.rc == 0
           changed_when: false
 
-        - name: Remove cloud-init default netplan (disables DHCP)
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
-          changed_when: true
+    - name: Remove cloud-init default netplan (disables DHCP)
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+      changed_when: true
 
-        - name: Configure static IP via netplan
-          ansible.builtin.shell: |
-            set -o pipefail
-            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
-            network:
-              version: 2
-              ethernets:
-                enp5s0:
-                  dhcp4: false
-                  addresses:
-                    - {{ vm_ip }}/24
-                  routes:
-                    - to: default
-                      via: {{ gateway }}
-                  nameservers:
-                    addresses:
-                      - {{ dns_primary_ip }}
-                      - {{ dns_secondary_ip }}
-            NETPLAN
-          args:
-            executable: /bin/bash
-          changed_when: true
+    - name: Configure static IP via netplan
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+        network:
+          version: 2
+          ethernets:
+            enp5s0:
+              dhcp4: false
+              addresses:
+                - {{ vm_ip }}/24
+              routes:
+                - to: default
+                  via: {{ gateway }}
+              nameservers:
+                addresses:
+                  - {{ dns_primary_ip }}
+                  - {{ dns_secondary_ip }}
+        NETPLAN
+      args:
+        executable: /bin/bash
+      changed_when: true
 
-        - name: Apply netplan
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
-          changed_when: true
+    - name: Fix netplan file permissions
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- chmod 600 /etc/netplan/50-static.yaml"
+      changed_when: true
+
+    - name: Apply netplan
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+      changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -586,8 +594,10 @@
           if ! omd sites | grep -q cmk; then
             omd create cmk
             htpasswd -b /omd/sites/cmk/etc/htpasswd cmkadmin "{{ vault_checkmk_password }}"
+            omd config cmk set AUTOSTART on
             omd start cmk
           else
+            omd config cmk set AUTOSTART on
             omd start cmk || true
           fi
         '
@@ -681,36 +691,40 @@
           until: vm_agent.rc == 0
           changed_when: false
 
-        - name: Remove cloud-init default netplan (disables DHCP)
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
-          changed_when: true
+    - name: Remove cloud-init default netplan (disables DHCP)
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- rm -f /etc/netplan/50-cloud-init.yaml"
+      changed_when: true
 
-        - name: Configure static IP via netplan
-          ansible.builtin.shell: |
-            set -o pipefail
-            cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
-            network:
-              version: 2
-              ethernets:
-                enp5s0:
-                  dhcp4: false
-                  addresses:
-                    - {{ vm_ip }}/24
-                  routes:
-                    - to: default
-                      via: {{ gateway }}
-                  nameservers:
-                    addresses:
-                      - {{ dns_primary_ip }}
-                      - {{ dns_secondary_ip }}
-            NETPLAN
-          args:
-            executable: /bin/bash
-          changed_when: true
+    - name: Configure static IP via netplan
+      ansible.builtin.shell: |
+        set -o pipefail
+        cat <<'NETPLAN' | lxc exec {{ vm_name }} -- tee /etc/netplan/50-static.yaml
+        network:
+          version: 2
+          ethernets:
+            enp5s0:
+              dhcp4: false
+              addresses:
+                - {{ vm_ip }}/24
+              routes:
+                - to: default
+                  via: {{ gateway }}
+              nameservers:
+                addresses:
+                  - {{ dns_primary_ip }}
+                  - {{ dns_secondary_ip }}
+        NETPLAN
+      args:
+        executable: /bin/bash
+      changed_when: true
 
-        - name: Apply netplan
-          ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
-          changed_when: true
+    - name: Fix netplan file permissions
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- chmod 600 /etc/netplan/50-static.yaml"
+      changed_when: true
+
+    - name: Apply netplan
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- netplan apply"
+      changed_when: true
 
     - name: Wait for cloud-init to finish
       ansible.builtin.command: "lxc exec {{ vm_name }} -- cloud-init status --wait"
@@ -920,7 +934,8 @@
           Type=oneshot
           RemainAfterExit=yes
           ExecStart=/bin/bash -c 'ip link show macvlan-host &>/dev/null || ip link add macvlan-host link {{ lan_interface }} type macvlan mode bridge'
-          ExecStart=/sbin/ip addr replace {{ opt3_macvlan_ip }}/24 dev macvlan-host
+          ExecStart=/sbin/ip addr flush dev macvlan-host
+          ExecStart=/sbin/ip addr add {{ opt3_macvlan_ip }}/32 dev macvlan-host
           ExecStart=/sbin/ip link set macvlan-host up
           ExecStart=/sbin/ip route replace {{ vm_monitoring_ip }}/32 dev macvlan-host src {{ opt3_macvlan_ip }}
           ExecStart=/sbin/ip route replace {{ vm_checkmk_ip }}/32 dev macvlan-host src {{ opt3_macvlan_ip }}
@@ -964,7 +979,8 @@
           Type=oneshot
           RemainAfterExit=yes
           ExecStart=/bin/bash -c 'ip link show macvlan-host &>/dev/null || ip link add macvlan-host link {{ lan_interface }} type macvlan mode bridge'
-          ExecStart=/sbin/ip addr replace {{ opt4_macvlan_ip }}/24 dev macvlan-host
+          ExecStart=/sbin/ip addr flush dev macvlan-host
+          ExecStart=/sbin/ip addr add {{ opt4_macvlan_ip }}/32 dev macvlan-host
           ExecStart=/sbin/ip link set macvlan-host up
           ExecStart=/sbin/ip route replace {{ vm_monitoring_ip }}/32 dev macvlan-host src {{ opt4_macvlan_ip }}
           ExecStart=/sbin/ip route replace {{ vm_checkmk_ip }}/32 dev macvlan-host src {{ opt4_macvlan_ip }}
