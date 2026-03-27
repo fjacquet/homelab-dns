@@ -1081,10 +1081,11 @@
     # Use update_attributes (merge) not attributes (replace) to avoid clearing other attrs.
     - name: Set ipaddress for each host (GET ETag → PUT update_attributes, via lxc exec)
       ansible.builtin.shell: |
+        set -o pipefail
         ETAG=$(lxc exec vm-checkmk -- curl -s -D - \
           -u 'cmkadmin:{{ vault_checkmk_password }}' \
           'http://localhost/cmk/check_mk/api/1.0/objects/host_config/{{ item.name }}' \
-          | grep -i '^ETag:' | awk '{print $2}' | tr -d '\r\n')
+          | grep -i '^ETag:' | awk '{print $2}' | tr -d '\r\n') || true
         if [ -z "$ETAG" ]; then echo "NOETAG:{{ item.name }}"; exit 0; fi
         lxc exec vm-checkmk -- curl -s -o /dev/null -w "%{http_code}" \
           -X PUT \
@@ -1093,6 +1094,8 @@
           -H "If-Match: ${ETAG}" \
           -d '{"update_attributes":{"ipaddress":"{{ item.ip }}"}}' \
           "http://localhost/cmk/check_mk/api/1.0/objects/host_config/{{ item.name }}"
+      args:
+        executable: /bin/bash
       loop: "{{ checkmk_hosts }}"
       loop_control:
         label: "{{ item.name }} ({{ item.ip }})"

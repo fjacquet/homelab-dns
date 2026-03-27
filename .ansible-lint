@@ -2,6 +2,7 @@
 exclude_paths:
   - group_vars/all/vault.yml
   - mkdocs.yml
+  - .serena/
 
 skip_list:
   - yaml[truthy] # allows yes/no in addition to true/false
