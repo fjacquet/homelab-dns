@@ -51,6 +51,11 @@ ansible-playbook playbooks/update.yml --skip-tags reboot  # no reboots
 ansible-playbook playbooks/update-containers.yml
 ansible-playbook playbooks/update-containers.yml --limit opt1  # single host
 
+# LXD VM OS updates (apt full-upgrade inside each VM via lxc exec)
+ansible-playbook playbooks/update-vms.yml
+ansible-playbook playbooks/update-vms.yml --check --diff   # dry-run
+ansible-playbook playbooks/update-vms.yml --skip-tags reboot
+
 # MicroCloud nodes (opt3/4/5)
 ansible-playbook playbooks/microcloud-prepare.yml
 ssh fjacquet@172.16.86.13 "sudo microcloud init"  # interactive, must run manually
@@ -87,6 +92,7 @@ ansible-vault edit group_vars/all/vault.yml
 | `site.yml` | `dns_servers` | All infra: DNS, DHCP, Traefik, keepalived, WireGuard, monitoring exporters |
 | `update.yml` | `dns_servers:microcloud` | Patch all nodes (serial), reboot if needed, verify services |
 | `update-containers.yml` | `dns_servers` + `microcloud[0]` | Pull latest container images and recreate (no reboot) |
+| `update-vms.yml` | `microcloud[0]` | Apt full-upgrade inside each LXD VM via `lxc exec`; restart VM if kernel changed |
 | `microcloud-prepare.yml` | `microcloud` | Base setup, snaps, NFS mounts, node_exporter |
 | `microcloud-services.yml` | `microcloud[0]` (mc-node-01) | LXD VMs + macvlan networking + Prometheus/Grafana/Checkmk/n8n |
 | `microcloud-vms-monitoring.yml` | `microcloud[0]` | Install node_exporter in VMs + add `node-vms` Prometheus job |
