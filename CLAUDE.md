@@ -155,6 +155,10 @@ Several tasks use `when: inventory_hostname in groups['dns_primary']` or `groups
 
 - **LXD VM netplan**: Run `netplan apply` inside a VM via `lxc exec <vm> -- netplan apply`. Static IPs are configured inside the VM; host-side is macvlan only.
 
+- **MicroCloud reboot needs `reboot_timeout >= 1800`**: After a kernel upgrade, snap + LXD daemon initialization keeps `sshd` from binding for several minutes past kernel boot. The default 600s in `ansible.builtin.reboot` is too short and produces spurious `UNREACHABLE` errors mid-rolling-upgrade — `update.yml` uses 1800s for this reason. The host actually recovers; ansible just gave up too early.
+
+- **`lxc cluster restore` is interactive**: The bare command prompts `(yes/no)` and fails under ansible with `Error: EOF`. Always pass `--force` (matching the existing `lxc cluster evacuate ... --force` pattern in `update.yml`).
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
