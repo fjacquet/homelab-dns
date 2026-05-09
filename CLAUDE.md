@@ -155,6 +155,10 @@ Several tasks use `when: inventory_hostname in groups['dns_primary']` or `groups
 
 - **LXD VM netplan**: Run `netplan apply` inside a VM via `lxc exec <vm> -- netplan apply`. Static IPs are configured inside the VM; host-side is macvlan only.
 
+- **All 5 nodes boot in legacy BIOS (CSM), not UEFI**: `/sys/firmware/efi` does not exist on any host, and `fwupdmgr get-updates` reports `WARNING: UEFI firmware can not be updated in legacy BIOS mode → No updatable devices`. Two consequences:
+  - **`fwupd` capsule firmware updates do not work.** BIOS / Intel ME / EC firmware can only be updated by booting from a Dell BIOS-update USB stick during a maintenance window. Latest OptiPlex 7040 BIOS as of 2024 is `1.31.0`; nodes are running `1.12.0`–`1.21.0`. Intel CPU microcode is still patched at runtime via apt's `intel-microcode` package — that's the only firmware-adjacent thing the `update.yml` playbook actually touches.
+  - **UEFI Secure Boot is not engaged.** The Microsoft Corporation UEFI CA 2011 expiration (October 2026) does not affect these machines because the shim → MS CA chain is not in the boot path. The `Canonical Ltd. Secure Boot Signing` certs visible in `dmesg` are the kernel's built-in MOK keyring for module signing, not active firmware-level Secure Boot.
+
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
