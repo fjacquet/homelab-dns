@@ -158,6 +158,9 @@ Several tasks use `when: inventory_hostname in groups['dns_primary']` or `groups
 - **All 5 nodes boot in legacy BIOS (CSM), not UEFI**: `/sys/firmware/efi` does not exist on any host, and `fwupdmgr get-updates` reports `WARNING: UEFI firmware can not be updated in legacy BIOS mode → No updatable devices`. Two consequences:
   - **`fwupd` capsule firmware updates do not work.** BIOS / Intel ME / EC firmware can only be updated by booting from a Dell BIOS-update USB stick during a maintenance window. Latest OptiPlex 7040 BIOS as of 2024 is `1.31.0`; nodes are running `1.12.0`–`1.21.0`. Intel CPU microcode is still patched at runtime via apt's `intel-microcode` package — that's the only firmware-adjacent thing the `update.yml` playbook actually touches.
   - **UEFI Secure Boot is not engaged.** The Microsoft Corporation UEFI CA 2011 expiration (October 2026) does not affect these machines because the shim → MS CA chain is not in the boot path. The `Canonical Ltd. Secure Boot Signing` certs visible in `dmesg` are the kernel's built-in MOK keyring for module signing, not active firmware-level Secure Boot.
+- **MicroCloud reboot needs `reboot_timeout >= 1800`**: After a kernel upgrade, snap + LXD daemon initialization keeps `sshd` from binding for several minutes past kernel boot. The default 600s in `ansible.builtin.reboot` is too short and produces spurious `UNREACHABLE` errors mid-rolling-upgrade — `update.yml` uses 1800s for this reason. The host actually recovers; ansible just gave up too early.
+
+- **`lxc cluster restore` is interactive**: The bare command prompts `(yes/no)` and fails under ansible with `Error: EOF`. Always pass `--force` (matching the existing `lxc cluster evacuate ... --force` pattern in `update.yml`).
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
