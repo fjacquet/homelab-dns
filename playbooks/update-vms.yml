@@ -39,16 +39,26 @@
       - vm-automation
 
   tasks:
+    # Single-line bash -lc on purpose: a YAML `>-` folded scalar does NOT
+    # join more-indented continuation lines (it preserves them as literal
+    # newlines), which leaks `\n` + leading whitespace into the bash script
+    # and bash then tries to execute `-o Dpkg::Options...` as a command.
+    # The whole pipeline must stay on one logical line to avoid that trap.
     - name: Apt update + full-upgrade in each VM
-      ansible.builtin.command: >-
-        lxc exec {{ item }} --
-        bash -c "apt-get update -qq &&
-                 DEBIAN_FRONTEND=noninteractive apt-get -y
-                   -o Dpkg::Options::='--force-confdef'
-                   -o Dpkg::Options::='--force-confold'
-                   full-upgrade &&
-                 apt-get -y autoremove &&
-                 apt-get -y autoclean"
+      ansible.builtin.command:
+        argv:
+          - lxc
+          - exec
+          - "{{ item }}"
+          - --
+          - bash
+          - -lc
+          - >-
+            set -e;
+            apt-get update -qq;
+            DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade;
+            apt-get -y autoremove;
+            apt-get -y autoclean
       loop: "{{ vms }}"
       changed_when: true
 
