@@ -148,7 +148,7 @@
       block:
         - name: Launch VM directly on target node
           ansible.builtin.command: >-
-            lxc launch ubuntu:24.04 {{ vm_name }}
+            lxc launch ubuntu:{{ ubuntu_lxd_release }} {{ vm_name }}
             --vm
             --target {{ vm_target }}
             --profile default
@@ -518,7 +518,7 @@
       block:
         - name: Launch VM directly on target node
           ansible.builtin.command: >-
-            lxc launch ubuntu:24.04 {{ vm_name }}
+            lxc launch ubuntu:{{ ubuntu_lxd_release }} {{ vm_name }}
             --vm
             --target {{ vm_target }}
             --profile default
@@ -585,7 +585,7 @@
       ansible.builtin.command: >-
         lxc exec {{ vm_name }} --
         bash -c "test -f /tmp/checkmk.deb ||
-        wget -q 'https://download.checkmk.com/checkmk/2.3.0p30/check-mk-raw-2.3.0p30_0.noble_amd64.deb' -O /tmp/checkmk.deb"
+        wget -q 'https://download.checkmk.com/checkmk/2.3.0p30/check-mk-raw-2.3.0p30_0.{{ checkmk_deb_codename }}_amd64.deb' -O /tmp/checkmk.deb"
       changed_when: true
 
     - name: Install Checkmk package
@@ -682,7 +682,7 @@
       block:
         - name: Launch VM directly on target node
           ansible.builtin.command: >-
-            lxc launch ubuntu:24.04 {{ vm_name }}
+            lxc launch ubuntu:{{ ubuntu_lxd_release }} {{ vm_name }}
             --vm
             --target {{ vm_target }}
             --profile default
