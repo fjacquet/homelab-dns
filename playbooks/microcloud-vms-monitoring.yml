@@ -28,6 +28,28 @@
       ansible.builtin.command: "lxc exec {{ item }} -- systemctl mask openipmi"
       loop: "{{ vms }}"
       failed_when: false
+
+    # Journald default lets the journal grow up to 4 GB per VM, which on our
+    # 8.7 GB LXD VM disks is enough to push usage above 75 %. Cap at 200 M
+    # per VM (idempotent: replace existing line or append).
+    - name: Cap systemd-journald SystemMaxUse in each VM ({{ vm_journal_max_use }})
+      ansible.builtin.command: >-
+        lxc exec {{ item }} --
+        bash -lc "if grep -qE '^#?SystemMaxUse=' /etc/systemd/journald.conf; then
+                    sed -i 's|^#\\?SystemMaxUse=.*|SystemMaxUse={{ vm_journal_max_use }}|' /etc/systemd/journald.conf;
+                  else
+                    echo SystemMaxUse={{ vm_journal_max_use }} >> /etc/systemd/journald.conf;
+                  fi"
+      loop: "{{ vms }}"
+      changed_when: true
+
+    - name: Restart systemd-journald + vacuum to enforce new cap
+      ansible.builtin.command: >-
+        lxc exec {{ item }} --
+        bash -lc "systemctl restart systemd-journald &&
+                  journalctl --vacuum-size={{ vm_journal_max_use }}"
+      loop: "{{ vms }}"
+      changed_when: true
       changed_when: true
 
     - name: Clear stale openipmi failed state in each VM

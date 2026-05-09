@@ -170,6 +170,18 @@ vm_monitoring_ip: "172.16.86.21"
 vm_checkmk_ip: "172.16.86.22"
 vm_automation_ip: "172.16.86.23"
 
+# Prometheus TSDB retention (set on vm-monitoring via /etc/default/prometheus).
+# Prometheus deletes whichever ceiling fires first. With ~100 MB per 30 days
+# at the current scrape volume, 1 GB leaves ~10x headroom and cannot fill
+# the 8.7 GB VM disk even if scrape volume grows unexpectedly.
+prometheus_retention_time: "30d"
+prometheus_retention_size: "1GB"
+
+# systemd-journald SystemMaxUse cap inside each LXD VM (8.7 GB disk).
+# Default of 4 GB lets a noisy unit fill the disk. 200 M per VM is enough
+# for ~1 week of logs at typical volume; rotate beyond that.
+vm_journal_max_use: "200M"
+
 # Cles generees par: wg genkey | tee private.key | wg pubkey > public.key
 wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
 wireguard_server_public_key: "{{ vault_wg_server_public_key }}"

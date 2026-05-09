@@ -270,10 +270,18 @@
         executable: /bin/bash
       changed_when: true
 
-    - name: Configure Prometheus retention
+    # Belt-and-suspenders retention: time-based ceiling AND a hard size cap.
+    # Prometheus deletes whichever fires first. With ~100 MB per 30 days at
+    # the current scrape volume, 1 GB leaves ~10x headroom and cannot run
+    # the VM disk out of space even if scrape volume grows unexpectedly.
+    - name: Configure Prometheus retention (time + size cap)
       ansible.builtin.command: >-
         lxc exec {{ vm_name }} --
-        bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time=30d --web.enable-lifecycle\"/' /etc/default/prometheus"
+        bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time={{ prometheus_retention_time }} --storage.tsdb.retention.size={{ prometheus_retention_size }} --web.enable-lifecycle\"/' /etc/default/prometheus"
+      changed_when: true
+
+    - name: Restart Prometheus to apply retention args
+      ansible.builtin.command: "lxc exec {{ vm_name }} -- systemctl restart prometheus"
       changed_when: true
 
     - name: Enable and start Prometheus
