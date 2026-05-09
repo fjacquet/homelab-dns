@@ -182,6 +182,18 @@ prometheus_retention_size: "1GB"
 # for ~1 week of logs at typical volume; rotate beyond that.
 vm_journal_max_use: "200M"
 
+# Ubuntu release used for new LXD VMs (`lxc launch ubuntu:<version>`).
+# Bump to "26.04" only after Checkmk publishes a `resolute_amd64.deb`
+# build (see ADR-020). Existing VMs are not affected by this — only
+# fresh `lxc launch` invocations in microcloud-services.yml.
+ubuntu_lxd_release: "24.04"
+
+# Codename of the Ubuntu release used in the Checkmk .deb URL.
+# 24.04 → noble, 26.04 → resolute. Bump in lockstep with
+# ubuntu_lxd_release. Used by microcloud-services.yml when downloading
+# the Checkmk Raw Edition package.
+checkmk_deb_codename: "noble"
+
 # Cles generees par: wg genkey | tee private.key | wg pubkey > public.key
 wireguard_server_private_key: "{{ vault_wg_server_private_key }}"
 wireguard_server_public_key: "{{ vault_wg_server_public_key }}"

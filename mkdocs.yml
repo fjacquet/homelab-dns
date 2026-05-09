@@ -50,6 +50,10 @@ nav:
       - ADR-014 Patch Management: adr/adr-014-patch-management-playbooks.md
       - ADR-015 Ansible Webhook Engine: adr/adr-015-ansible-webhook-engine.md
       - ADR-016 Security Hardening: adr/adr-016-security-hardening.md
+      - ADR-017 LXD VMs over Containers: adr/adr-017-lxd-vms-over-containers.md
+      - ADR-018 Disable Synology Proxy: adr/adr-018-disable-synology-proxy.md
+      - ADR-019 macvlan-host Systemd: adr/adr-019-macvlan-host-systemd-service.md
+      - ADR-020 Defer Ubuntu 26.04 Migration: adr/adr-020-defer-ubuntu-26-04-migration.md
 
 markdown_extensions:
   - admonition
