@@ -67,21 +67,7 @@
       retries: 12
       delay: 10
 
-- name: Update containers on microcloud
-  hosts: microcloud[0]
-  become: true
-  tags: [update-containers]
-  tasks:
-    - name: Pull latest Prometheus and Grafana images
-      community.docker.docker_compose_v2_pull:
-        project_src: /opt/monitoring
-
-    - name: Recreate Prometheus and Grafana containers with new images
-      community.docker.docker_compose_v2:
-        project_src: /opt/monitoring
-        recreate: always
-        pull: never
-
-    - name: Restart Checkmk OMD site in LXD VM
-      ansible.builtin.command: "lxc exec vm-checkmk -- omd restart cmk"
-      changed_when: true
+# Prometheus, Grafana, and Checkmk run as apt packages inside their LXD
+# VMs (vm-monitoring, vm-checkmk) per ADR-017 — not Docker containers.
+# They are patched by update-vms.yml (apt full-upgrade inside each VM),
+# so there is no microcloud container-update play here.

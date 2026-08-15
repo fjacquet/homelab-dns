@@ -166,7 +166,11 @@
         path: "{{ item.mountpoint }}"
         src: "{{ nfs_server }}:{{ item.export }}"
         fstype: nfs
-        opts: rw,hard,intr,rsize=32768,wsize=32768,timeo=14,nfsvers=4.1
+        # _netdev + nofail: don't fail boot if the NAS is slow/unreachable.
+        # x-systemd.automount: mount lazily on first access and RETRY on
+        # every access — a one-shot boot-time timeout no longer leaves the
+        # unit permanently failed (which silently kills the LXD dir pool).
+        opts: rw,hard,intr,rsize=32768,wsize=32768,timeo=14,nfsvers=4.1,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=30
         state: mounted
       loop: "{{ nfs_mounts }}"
       loop_control:

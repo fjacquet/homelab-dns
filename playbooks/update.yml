@@ -18,10 +18,31 @@
       register: reboot_required
       changed_when: false
 
-    # MicroCloud only: evacuate LXD instances before reboot
+    # MicroCloud only: the LXD storage pool is a dir pool backed by the
+    # Synology NFS mount /srv/datastore. A boot-time mount timeout (slow
+    # NAS) leaves srv-datastore.mount "failed" and never retries, so
+    # evacuate's precheck fails ("storage pools aren't started yet")
+    # indefinitely. Ensure the mount is active first so evacuate can run.
+    - name: Ensure NFS datastore mount is active before evacuate
+      ansible.builtin.systemd:
+        name: srv-datastore.mount
+        state: started
+      when:
+        - inventory_hostname in groups['microcloud']
+        - reboot_required.stat.exists
+      tags: [update, reboot]
+
     - name: Evacuate LXD cluster member before reboot
       ansible.builtin.command: lxc cluster evacuate {{ mc_hostname }} --force
-      changed_when: true
+      register: lxc_evacuate
+      changed_when: lxc_evacuate.rc == 0
+      # apt's "upgrade: full" bounces snap.lxd.daemon; the LXD API can come
+      # back a few seconds before the dir pool re-registers as "started".
+      # A short retry absorbs that residual race (the NFS mount itself is
+      # already guaranteed by the preceding task).
+      until: lxc_evacuate.rc == 0
+      retries: 6
+      delay: 10
       when:
         - inventory_hostname in groups['microcloud']
         - reboot_required.stat.exists
