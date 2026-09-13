@@ -277,7 +277,8 @@
     - name: Configure Prometheus retention (time + size cap)
       ansible.builtin.command: >-
         lxc exec {{ vm_name }} --
-        bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time={{ prometheus_retention_time }} --storage.tsdb.retention.size={{ prometheus_retention_size }} --web.enable-lifecycle\"/' /etc/default/prometheus"
+        bash -c "sed -i 's/^ARGS=.*/ARGS=\"--storage.tsdb.retention.time={{ prometheus_retention_time }}
+        --storage.tsdb.retention.size={{ prometheus_retention_size }} --web.enable-lifecycle\"/' /etc/default/prometheus"
       changed_when: true
 
     - name: Restart Prometheus to apply retention args
