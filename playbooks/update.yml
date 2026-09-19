@@ -103,6 +103,22 @@
       changed_when: false
       when: inventory_hostname in groups['microcloud']
 
+    # systemd "started" only means the unit is active, not that the LXD
+    # REST API is answering yet — right after a reboot it can still be
+    # initializing, and firing `lxc cluster restore` too early gets the
+    # command killed (rc -9) instead of failing cleanly.
+    - name: Wait for LXD API to be ready
+      ansible.builtin.command: lxc cluster list
+      register: lxd_api_check
+      until: lxd_api_check.rc == 0
+      retries: 12
+      delay: 10
+      changed_when: false
+      when:
+        - inventory_hostname in groups['microcloud']
+        - reboot_required.stat.exists
+      tags: [update, reboot]
+
     - name: Restore LXD cluster member after reboot
       # --force skips the interactive (yes/no) confirmation; without it
       # the command reads stdin under ansible and exits "Error: EOF".
