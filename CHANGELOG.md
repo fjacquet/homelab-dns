@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] — 2026-03-09
 
+### Security
+
+- `urllib3` 2.7.0 → 2.8.0 (HIGH Dependabot alert) via `uv lock --upgrade` (2026-10-18).
+
 ### Added
 
 - **ADR-017**: LXD VMs replace LXD containers for MicroCloud services (own kernel, own IP, no UID remapping hacks)
