@@ -7,7 +7,7 @@ import secrets
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from threading import Thread
@@ -132,7 +132,7 @@ def _run_playbook(job_id: str, request: RunRequest) -> None:
         cmd += ["--extra-vars", json.dumps(request.extra_vars)]
 
     job.log_lines.append(
-        f"[{datetime.now(timezone.utc).isoformat()}] Running: {' '.join(cmd)}"
+        f"[{datetime.now(UTC).isoformat()}] Running: {' '.join(cmd)}"
     )
 
     try:
@@ -157,7 +157,7 @@ def _run_playbook(job_id: str, request: RunRequest) -> None:
         job.log_lines.append(f"ERROR launching playbook: {exc}")
         job.status = JobStatus.failed
 
-    job.finished_at = datetime.now(timezone.utc).isoformat()
+    job.finished_at = datetime.now(UTC).isoformat()
     job.log_lines.append(
         f"[{job.finished_at}] Job {job_id} finished with status {job.status}"
     )
@@ -235,7 +235,7 @@ def run(
         job_id=job_id,
         playbook=request.playbook,
         status=JobStatus.accepted,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
     thread = Thread(target=_run_playbook, args=(job_id, request), daemon=True)
