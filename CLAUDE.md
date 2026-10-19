@@ -31,10 +31,10 @@ ansible-playbook playbooks/site.yml --check --diff
 ansible-playbook playbooks/site.yml --tags base
 ansible-playbook playbooks/site.yml --tags docker
 ansible-playbook playbooks/site.yml --tags technitium
-ansible-playbook playbooks/site.yml --tags dns_records
+ansible-playbook playbooks/site.yml --tags dns-config
 ansible-playbook playbooks/site.yml --tags traefik
 ansible-playbook playbooks/site.yml --tags keepalived
-ansible-playbook playbooks/site.yml --tags iptables
+ansible-playbook playbooks/site.yml --tags firewall
 ansible-playbook playbooks/site.yml --tags dhcp
 ansible-playbook playbooks/site.yml --tags wireguard
 ansible-playbook playbooks/site.yml --tags cron

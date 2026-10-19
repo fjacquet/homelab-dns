@@ -7,7 +7,7 @@ global_defs {
 vrrp_script check_traefik {
     script "/etc/keepalived/scripts/check_traefik.sh"
     interval 5
-    weight -50
+    weight -150  # must exceed the 200/100 priority gap so BACKUP takes the VIP
     fall 2
     rise 2
 }

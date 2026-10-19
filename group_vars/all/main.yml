@@ -45,7 +45,6 @@ dns_a_records:
   - { name: "vm-monitoring.evlab.ch", ip: "172.16.86.21" }
   - { name: "vm-checkmk.evlab.ch", ip: "172.16.86.22" }
   - { name: "vm-automation.evlab.ch", ip: "172.16.86.23" }
-  - { name: "tvbox.evlab.ch", ip: "172.16.86.25" }
   - { name: "roborock.evlab.ch", ip: "172.16.86.42" }
   - { name: "sonos1.evlab.ch", ip: "172.16.86.43" }
   - { name: "sonos-chambre.evlab.ch", ip: "172.16.86.44" }
@@ -73,7 +72,6 @@ dns_ptr_records:
   - { ip: "172.16.86.21", name: "vm-monitoring.evlab.ch" }
   - { ip: "172.16.86.22", name: "vm-checkmk.evlab.ch" }
   - { ip: "172.16.86.23", name: "vm-automation.evlab.ch" }
-  - { ip: "172.16.86.25", name: "tvbox.evlab.ch" }
   - { ip: "172.16.86.42", name: "roborock.evlab.ch" }
   - { ip: "172.16.86.43", name: "sonos1.evlab.ch" }
   - { ip: "172.16.86.44", name: "sonos-chambre.evlab.ch" }
@@ -99,7 +97,6 @@ dhcp_reservations:
   - { mac: "64:00:6A:7D:89:4E", ip: "172.16.86.13", name: "opt3 mc-node-01" }
   - { mac: "64:00:6A:79:7B:36", ip: "172.16.86.14", name: "opt4 mc-node-02" }
   - { mac: "64:00:6A:7D:86:F6", ip: "172.16.86.15", name: "ubuntu-server mc-node-03" }
-  - { mac: "04:70:56:68:C5:9C", ip: "172.16.86.25", name: "TV-Box" }
   - { mac: "68:B9:C2:12:71:B9", ip: "172.16.86.32", name: "Unknown 68B9" }
   # LXD VMs — verify with: lxc config get <vm> volatile.eth0.hwaddr on mc-node-01
   - { mac: "00:16:3e:48:43:97", ip: "172.16.86.21", name: "vm-monitoring" }
