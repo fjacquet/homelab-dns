@@ -114,16 +114,30 @@
       ansible.builtin.command: lxc config set core.https_address {{ ansible_host }}:8443
       changed_when: true
 
+    - name: Check for existing ui-admin trust entry or pending token
+      ansible.builtin.shell: |
+        set -o pipefail
+        { lxc config trust list --format csv; lxc config trust list-tokens --format csv; } | grep -cE '(^|,)ui-admin(,|$)' || true
+      args:
+        executable: /bin/bash
+      register: lxd_ui_admin
+      changed_when: false
+      check_mode: false
+
+    # Only mint a token when none exists, so runs don't pile up admin tokens in logs
     - name: Generate LXD trust token for UI access
       ansible.builtin.command: lxc config trust add --name ui-admin
       register: lxd_trust_token
       changed_when: true
+      no_log: true
+      when: lxd_ui_admin.stdout | int == 0
 
     - name: Display LXD UI access info
       ansible.builtin.debug:
         msg: |
           LXD Web UI available at: https://lxd.evlab.ch
-          Trust token (use in browser): {{ lxd_trust_token.stdout }}
+          {{ 'Trust token (use in browser): ' ~ lxd_trust_token.stdout if lxd_trust_token is changed
+             else 'ui-admin already trusted or token pending: lxc config trust list-tokens' }}
 
 # #############################################################################
 # Phase 1 — Monitoring VM (Prometheus + Grafana) — 172.16.86.21
