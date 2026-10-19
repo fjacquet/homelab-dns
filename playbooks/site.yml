@@ -724,7 +724,7 @@
           domainName: "{{ domain }}"
           leaseTimeDays: "7"
           dnsSuffix: "{{ domain }}"
-          exclusions: "[{\"startingAddress\":\"172.16.86.2\",\"endingAddress\":\"172.16.86.99\"}]"
+          exclusions: "172.16.86.2|172.16.86.99"  # Technitium API: {start}|{end}, not JSON
       failed_when: false
       no_log: true
 
