@@ -725,6 +725,7 @@
           leaseTimeDays: "7"
           dnsSuffix: "{{ domain }}"
           exclusions: "172.16.86.2|172.16.86.99"  # Technitium API: {start}|{end}, not JSON
+          allowOnlyReservedLeases: "true"  # otherwise FindScope picks this scope for non-reserved clients → no offer
       failed_when: false
       no_log: true
 
