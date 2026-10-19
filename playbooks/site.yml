@@ -698,6 +698,7 @@
           endingAddress: "{{ dhcp_range_end }}"
           subnetMask: "255.255.255.0"
           routerAddress: "{{ gateway }}"
+          useThisDnsServer: "false"  # true makes Technitium ignore dnsServers and hand out only itself
           dnsServers: "{{ dns_primary_ip }},{{ dns_secondary_ip }},1.1.1.1"
           domainName: "{{ domain }}"
           leaseTimeDays: "1"
