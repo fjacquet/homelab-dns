@@ -2,10 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased] — 2026-03-09
+## [Unreleased]
+
+## [0.1.1] - 2026-10-24
 
 ### Security
 
+- **`make vuln` and the Security workflow now actually scan.** `uvx osv-scanner` never resolved
+  (osv-scanner is a Go binary, not on PyPI) and `|| true` hid the failure, so no CI run had ever
+  scanned `uv.lock`. `make vuln` now runs `osv-scanner scan source --recursive .` and fails on
+  findings; fjacquet/ci v1.6.0 installs a pinned, checksum-verified binary in CI.
+- `ansible-webhook/requirements.txt` is now compiled from `requirements.in` with every transitive
+  dependency pinned: `fastapi` 0.115.0 → 0.162.0, `uvicorn` 0.30.0 → 0.54.0, `pydantic` 2.7.0 →
+  2.14.1, `starlette` 1.9.0, `anyio` 4.15.1, `h11` 0.16.0, `idna` 3.20. This closes 11 advisories,
+  2 of them critical (GHSA-82r6-8w77-94w6 in anyio, GHSA-vqfr-h8mv-ghfj in h11). A request without
+  `X-API-Key` now gets 401.
 - `urllib3` 2.7.0 → 2.8.0 (HIGH Dependabot alert) via `uv lock --upgrade` (2026-10-18).
 
 ### Added
