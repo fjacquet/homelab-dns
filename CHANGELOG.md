@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
   dependency pinned: `fastapi` 0.115.0 → 0.162.0, `uvicorn` 0.30.0 → 0.54.0, `pydantic` 2.7.0 →
   2.14.1, `starlette` 1.9.0, `anyio` 4.15.1, `h11` 0.16.0, `idna` 3.20. This closes 11 advisories,
   2 of them critical (GHSA-82r6-8w77-94w6 in anyio, GHSA-vqfr-h8mv-ghfj in h11). A request without
-  `X-API-Key` now gets 401.
+  `X-API-Key` now gets 401 instead of 403: newer FastAPI changed `APIKeyHeader`'s missing-key status.
 - `urllib3` 2.7.0 → 2.8.0 (HIGH Dependabot alert) via `uv lock --upgrade` (2026-10-18).
 
 ### Added
